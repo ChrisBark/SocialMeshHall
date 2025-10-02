@@ -1,0 +1,34 @@
+<html>
+<head>
+</head>
+<body>
+<input type="file" id="files" multiple />
+<div id="stuff">
+</div>
+<div id="templates">
+    <div id="picture">
+        <img>
+    </div>
+</div>
+<script src="/config.js"></script>
+<script src="/js/PeerManager.js"></script>
+<script src="/js/FileSectorSelector.js"></script>
+<script src="/js/FileManager.js"></script>
+<script type='application/javascript'>
+document.addEventListener("DOMContentLoaded", () => {
+    let imageTemplate = document.getElementById('picture');
+    let stuff = document.getElementById('stuff');
+    let fileInput = document.getElementById('files');
+    let peerMgr = new PeerManager(config.name, config.mainChannel, config.defaultChannel, config.options);
+    let fileMgr = new FileManager(fileInput, peerMgr, imageTemplate, stuff, stuff, config);
+    fileMgr.init()
+    .then( ignore => {
+        return peerMgr.connect(config.startURL);
+    })
+    .catch(err => {
+        console.log('init error', err);
+    });
+});
+</script>
+</body>
+</html>

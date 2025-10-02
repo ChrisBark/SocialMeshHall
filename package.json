@@ -1,0 +1,15 @@
+{
+  "name": "ds",
+  "version": "1.0.0",
+  "description": "Distributed Social Media",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Bark",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-datachannel": "^0.11.0"
+  }
+}
