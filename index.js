@@ -7,8 +7,8 @@ const { randomInt } = require('node:crypto');
 const PeerManager = require('./lib/peermgr');
 
 const options = {
-  key: fs.readFileSync('/home/barky/dev/ds/ssl/cert.key').toString(),
-  cert: fs.readFileSync('/home/barky/dev/ds/ssl/cert.pem').toString(),
+  key: fs.readFileSync('ssl/cert.key').toString(),
+  cert: fs.readFileSync('ssl/cert.pem').toString(),
 };
 
 const app = express();

@@ -15,6 +15,8 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+importScripts('/js/ScatteredRangeRedBlackTree.js', '/js/FileSectorSelector.js');
+
 class FileHandle {
     constructor(fileWorker, filepath) {
         this.fileWorker = fileWorker;
@@ -25,15 +27,19 @@ class FileHandle {
         this.pollH = setInterval(this.sendFilePackets.bind(this), fileWorker.pollingInterval);
     }
 
-    loadFile(filedata) {
-        const parts = this.filepath.split('/');
+    async load() {
+        let parts = this.filepath.split('/');
         if (parts.length < 5) {
             return Promise.reject(new Error('Filepath too short: ' + this.filepath));
         }
         // Assume it's the fileName on the end.
         const fileName = parts.pop();
+        if (parts[0] === '') {
+            parts.shift();
+        }
         // Walk through the directories.
         return parts.reduce( (p, v) => {
+            //return p.then( dh => dh.getDirectoryHandle(v, {create: true}));
             return p.then( dh => dh.getDirectoryHandle(v, {create: true}));
         }, navigator.storage.getDirectory())
         // Now load the file.
@@ -44,6 +50,18 @@ class FileHandle {
         })
         .then( ah => {
             this.fileAccessHandle = ah;
+            return Promise.resolve(ah);
+        });
+    }
+
+    loadFile(filedata, peer) {
+        // If we know the size of this file then just send a control
+        // packet 
+        if (peer && this.size) {
+            return this.sendControlPacket(peer);
+        }
+        return (this.fileAccessHandle ? Promise.resolve(this.fileAccessHandle) : this.load())
+        .then( ah => {
             // If this is called with the full file we need to write it first.
             if (filedata) {
                 let written = 0;
@@ -56,6 +74,9 @@ class FileHandle {
             if (ah.getSize()) {
                 return this.setSize(ah.getSize(), filedata)
                 .then( sizeChanged => {
+                    if (!sizeChanged) {
+                        return Promise.resolve(true);
+                    }
                     // If we weren't given file date then we need to read it
                     // from the file.
                     if (!filedata) {
@@ -108,6 +129,11 @@ class FileHandle {
         });
     }
 
+    async drainQueue() {
+        this.queue.reduce( (p, v) => p.then(this.handleDataPacket(v.peer, v.file, v.index, v.buffer)), Promise.resolve(this));
+        this.queue = [];
+    }
+
     // Returns a boolean to indicate if the size was set.
     async setSize(size, filedata) {
         return Promise.resolve(this.size)
@@ -122,11 +148,8 @@ class FileHandle {
                 this.fileSectorSelector = new FileSectorSelector(this.numChunks, this.numSectors);
                 // Work through any queued data packets that were waiting for the
                 // size to be set.
-                return Promise.resolve(this.queue.reduce( (p, v) => p.then(this.handleDataPacket(v.peer, v.file, v.index, v.buffer)), Promise.resolve(this)))
-                .then( ignore => {
-                    this.queue = [];
-                    return Promise.resolve(true);
-                });
+                this.drainQueue();
+                return Promise.resolve(true);
             }
             return Promise.resolve(false);
         });
@@ -233,7 +256,7 @@ class FileHandle {
                 file: this.filepath,
                 peer,
                 data
-            }, [data]);
+            }, []);
         });
     }
 
@@ -259,7 +282,7 @@ class FileHandle {
     }
 
     async sendFilePackets() {
-        this.peers.forEach( (peerInfo, peer) => {
+        (this.fileWorker?.peers??[]).forEach( (peerInfo, peer) => {
             const fileInfo = peerInfo[this.filepath];
             if (fileInfo) {
                 // See if we have a range of chunks to send.
@@ -271,10 +294,9 @@ class FileHandle {
                             fileInfo.nextIndex = fileInfo.chunks[0]++;
                         }
                         else {
-                            // Move onto the next sector and let the other
-                            // side send a control packet if they already have
-                            // it.
-                            fileInfo.nextIndex++;
+                            // Use the nextIndex calculated above, if it's
+                            // something the other side has already seen then
+                            // they will send a control packet.
                             // Wrap around the end of the file.
                             if (fileInfo.nextIndex >= this.size) {
                                 fileInfo.nextIndex = 0;
@@ -300,16 +322,16 @@ class FileWorker {
         this.pollingInterval = pollingInterval;
     }
 
-    async loadFile(file, filedata) {
+    async loadFile(file, filedata, peer) {
         if (!this.files.has(file)) {
             this.files.set(file, new FileHandle(this, file));
         }
-        this.files.get(file).loadFile(filedata);
+        this.files.get(file).loadFile(filedata, peer);
     }
 
     async handleFileData(peer, file, data) {
         const fileH = this.files.get(file);
-        const uint32View = new UInt32Array(data);
+        const uint32View = new Uint32Array(data);
         const index = uint32View[0];
         // Lazy-load peer info.
         if (!this.peers.has(peer)) {
@@ -333,7 +355,8 @@ onmessage = ev => {
             _worker.init(msg.max, msg.mtu, msg.pollingInterval);
             break;
         case 'file':
-            return _worker.loadFile(msg.file);
+        console.log('BARK loading file for peer', msg.peer);
+            return _worker.loadFile(msg.file, undefined, msg.peer);
             break;
         case 'data':
             _worker.handleFileData(msg.peer, msg.file, msg.data);

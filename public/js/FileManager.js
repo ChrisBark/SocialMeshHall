@@ -152,10 +152,12 @@ class FileManager {
             // worker will find it when we open the channel.
             for (const file of this.fileInput.files) {
                 promises.push(dh.getFileHandle(file.name, {create: true}).then( fh => {
+                    let reader = new FileReader();
                     let filename = path + file.name;
-                    let data = file.readAsArrayBuffer();
-                    this.fileWorker.postMessage({ request: 'upload', filename, data }, [data]);
-                    return Promise.resolve(filename);
+                    reader.onload = ev => {
+                        this.fileWorker.postMessage({ request: 'upload', file: filename, data: reader.result }, [reader.result]);
+                    };
+                    reader.readAsArrayBuffer(file);
                 }));
             }
             return Promise.all(promises);

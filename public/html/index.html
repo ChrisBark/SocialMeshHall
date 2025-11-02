@@ -12,7 +12,6 @@
 </div>
 <script src="/config.js"></script>
 <script src="/js/PeerManager.js"></script>
-<script src="/js/FileSectorSelector.js"></script>
 <script src="/js/FileManager.js"></script>
 <script type='application/javascript'>
 document.addEventListener("DOMContentLoaded", () => {
@@ -20,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let stuff = document.getElementById('stuff');
     let fileInput = document.getElementById('files');
     let peerMgr = new PeerManager(config.name, config.mainChannel, config.defaultChannel, config.options);
-    let fileMgr = new FileManager(fileInput, peerMgr, imageTemplate, stuff, stuff, config);
+    let fileMgr = new FileManager(fileInput, peerMgr, imageTemplate, stuff, config);
     fileMgr.init()
     .then( ignore => {
         return peerMgr.connect(config.startURL);
