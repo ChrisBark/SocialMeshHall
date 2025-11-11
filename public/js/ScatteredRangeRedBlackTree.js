@@ -46,6 +46,7 @@ class ScatteredRangeRedBlackTree {
                     this._queue.shift();
                 } while (this._queue.length);
             }
+            return Promise.resolve({});
         });
     }
 

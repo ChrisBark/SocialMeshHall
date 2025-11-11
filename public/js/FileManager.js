@@ -41,26 +41,32 @@ class FileManager {
         });
     }
 
-    async loadImage(filepath) {
-        let newImage = this.imageTemplate.cloneNode(true);
-        let imgElements = newImage.getElementsByTagName('img');
+    async load(filepath) {
         const parts = filepath.split('/');
         if (parts.length < 5) {
             return Promise.reject(new Error('Filepath too short: ' + filepath));
         }
+        if (parts[0] === '') {
+            parts.shift();
+        }
         // Assume it's the fileName on the end.
         const fileName = parts.pop();
-        parts.reduce( (p, v) => {
-            return p.then( dh => dh.getDirectoryHandle(v));
+        return parts.reduce( (p, v) => {
+            return p.then( dh => dh.getDirectoryHandle(v, {create: true}));
         }, Promise.resolve(this.opfsRoot))
-        .then( dh => dh.getFileHandle(fileName))
+        .then( dh => dh.getFileHandle(fileName, {create: true}));
+    }
+
+    async loadImage(filepath) {
+        let newImage = this.imageTemplate.cloneNode(true);
+        let imgElements = newImage.getElementsByTagName('img');
+        this.load(filepath)
         .then( fh => fh.getFile())
         .then( fileData => {
             for (const img of imgElements) {
                 img.src = URL.createObjectURL(fileData);
             }
             this.imageDiv.appendChild(newImage);
-            console.log('done loading file!');
         })
         .catch( err => {
             console.error('Failed to load file ' + filepath, err);
@@ -75,10 +81,21 @@ class FileManager {
                 this.loadImage(msg.file);
                 // New file to load into the DOM!
                 break;
+            case 'list':
+                // Create channels for any files the peer doesn't have.
+                if (this.fileChannels.has(msg.peer)) {
+                    const channelMap = this.fileChannels.get(msg.peer);
+                    (msg.files??[]).forEach( file => {
+                        if (!channelMap.has(file)) {
+                            this.peerMgr.createChannel(file, msg.peer)
+                        }
+                    });
+                }
+                break;
             case 'send':
                 if (this.fileChannels.has(msg.peer)) {
                     const channelMap = this.fileChannels.get(msg.peer);
-                    if (channelMap.has(msg.file)) {
+                    if (channelMap?.has(msg.file)) {
                         channelMap.get(msg.file).send(msg.data);
                     }
                 }
@@ -111,7 +128,6 @@ class FileManager {
             this.fileChannels.set(peer, new Map());
         }
         this.fileChannels.get(peer).set(channel.label, channel);
-        this.fileWorker.postMessage({ request: 'file', peer, file: channel.label });
         channel.onclose = () => {
             if (this.fileChannels.has(peer)) {
                 this.fileChannels.get(peer).delete(channel.label);
@@ -120,6 +136,10 @@ class FileManager {
         channel.onmessage = (msgEv) => {
             this.fileWorker.postMessage({ request: 'data', peer, file: channel.label, data: msgEv.data });
         };
+        this.load(channel.label)
+        .then( ignore => {
+            this.fileWorker.postMessage({ request: 'open', peer, file: channel.label });
+        });
     }
 
     async handlePeerEvent(type, peer) {
@@ -128,7 +148,8 @@ class FileManager {
                 console.error('Peer ' + peer + ' already exists, replacing');
             }
             this.fileChannels.set(peer, new Map());
-            // TODO - Determine which files to share with the new peer.
+            // Generate a list of channels to possibly open.
+            this.fileWorker.postMessage({ request: 'list', peer });
         }
         else if (type === 'remove') {
             this.fileChannels.delete(peer);
@@ -155,7 +176,7 @@ class FileManager {
                     let reader = new FileReader();
                     let filename = path + file.name;
                     reader.onload = ev => {
-                        this.fileWorker.postMessage({ request: 'upload', file: filename, data: reader.result }, [reader.result]);
+                        this.fileWorker.postMessage({ request: 'create', file: filename, data: reader.result }, [reader.result]);
                     };
                     reader.readAsArrayBuffer(file);
                 }));
