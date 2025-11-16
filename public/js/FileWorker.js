@@ -30,31 +30,8 @@ class FileHandle {
         this.pollH = setInterval(this.sendFilePackets.bind(this), fileWorker.pollingInterval);
     }
 
-    async close() {
-        if (this.fileAccessHandle) {
-            // Done with the access handle!
-            this.fileAccessHandle.close();
-        }
-    }
-
-    async create(file, data) {
-        return this.load()
-        .then( ah => {
-            let written = 0;
-            do {
-                written += ah.write(data, {at: written});
-            } while (written < data.byteLength);
-            return this.setSize(ah.getSize(), data);
-        })
-        .then( sizeChanged => {
-            // Trigger a swarm for the new file.
-            this.swarm();
-            return Promise.resolve(sizeChanged);
-        });
-    }
-
-    async load() {
-        this.loaded = new Promise( (resolve, reject) => {
+    async write(file, data) {
+        return new Promise( (resolve, reject) => {
             let parts = this.filepath.split('/');
             if (parts.length < 5) {
                 return reject(new Error('Filepath too short: ' + this.filepath));
@@ -65,8 +42,7 @@ class FileHandle {
                 parts.shift();
             }
             // Walk through the directories.
-            parts.reduce( (p, v) => {
-                //return p.then( dh => dh.getDirectoryHandle(v, {create: true}));
+            return parts.reduce( (p, v) => {
                 return p.then( dh => dh.getDirectoryHandle(v, {create: true}));
             }, navigator.storage.getDirectory())
             .then( dh => dh.getFileHandle(fileName, {create: true}))
@@ -79,8 +55,33 @@ class FileHandle {
                 this.fileAccessHandle = ah;
                 resolve(this.fileAccessHandle);
             });
+        })
+        .then( ah => {
+            let written = 0;
+            do {
+                written += ah.write(data, {at: written});
+            } while (written < data.byteLength);
+            return this.setSize(ah.getSize(), data);
+        })
+        .then( sizeChanged => {
+            this.fileAccessHandle.close();
+            delete this.fileAccessHandle;
+            delete this.fileHandle;
+            return Promise.resolve(sizeChanged);
+        })
+        .catch( err => {
+            console.log('load file error', err);
         });
-        return this.loaded;
+    }
+
+    async create(file, data) {
+        return this.write(file, data)
+        .then( sizeChanged => {
+            this.rangeTree.setFull();
+            // Trigger a swarm for the new file.
+            this.swarm();
+            return Promise.resolve(sizeChanged);
+        });
     }
 
     open(peer, file) {
@@ -89,38 +90,7 @@ class FileHandle {
         if (peer && this.size) {
             return this.sendControlPacket(peer);
         }
-        return (this.loaded ? this.loaded : this.load())
-        .then( ah => {
-            // If we have this file, or just wrote it above, then this will be 
-            // non-zero.
-            if (ah?.getSize()) {
-                return this.setSize(ah.getSize())
-                .then( sizeChanged => {
-                    // Read in the file data if we just set the file size.
-                    if (sizeChanged) {
-                        const buffer = new DataView(this.buffer);
-                        this.readLength = ah.read(buffer, { at: 0 });
-                        while(this.readLength < this.size) {
-                            this.readLength += ah.read(buffer, { at: this.readLength });
-                        }
-                        // Mark the range tree as full.
-                        return this.rangeTree.setFull();
-                    }
-                    return Promise.resolve(sizeChanged);
-                })
-                .then( sizeChanged => {
-                    // If we know the file size then send a control packet to
-                    // the peer that opened this file.
-                    if (sizeChanged) {
-                        return this.sendControlPacket(peer);
-                    }
-                });
-            }
-            // If we don't have the file then trigger a swarm.
-            else {
-                this.swarm();
-            }
-        });
+        this.swarm();
     }
 
     async swarm() {
@@ -226,14 +196,13 @@ class FileHandle {
                     // TODO - we can start writing the file before we receive the
                     // entire file.
                     if (this.rangeTree.isComplete()) {
-                        let written = 0;
-                        while (written < this.size) {
-                            written += this.fileAccessHandle.write(buffer, { at: written })
-                        }
-                        this.close();
-                        postMessage({
-                            type: 'file',
-                            file: this.filepath
+                        return this.write(file, this.buffer)
+                        .then( sizeChanged => {
+                            postMessage({
+                                type: 'file',
+                                file: this.filepath,
+                                data: this.buffer
+                            });
                         });
                     }
                 });
@@ -271,7 +240,8 @@ class FileHandle {
     async sendFilePacket(peer, index) {
         // If there's less the the maximum transmission units left we need to
         // send less then the mtu.
-        let size = (index + this.mtu > this.size) ? this.size - index : this.mtu;
+        const packetBoundary = this.fileWorker.mtu * (index + 1);
+        let size = (packetBoundary > this.size) ? this.size - (packetBoundary - this.fileWorker.mtu) : this.fileWorker.mtu;
         // Create a buffer of the index for copying into the data buffer.
         let dataIndex = new Uint32Array(1);
         dataIndex[0] = index;
@@ -286,32 +256,33 @@ class FileHandle {
             file: this.filepath,
             peer,
             data
-        }, [data]);
+        });
     }
 
     async sendFilePackets() {
         (this.fileWorker?.peers??[]).forEach( (peerInfo, peer) => {
             const fileInfo = peerInfo[this.filepath];
-            if (fileInfo) {
+            if (fileInfo.currentSector) {
+                const sector = fileInfo.currentSector;
                 // See if we have a range of chunks to send.
-                if (fileInfo.chunks?.length) {
-                    fileInfo.nextIndex = fileInfo.chunks[0]++;
-                    if (fileInfo.nextIndex > fileInfo.chunks[1]) {
+                if (sector.chunks?.length) {
+                    sector.nextIndex = sector.chunks[0][0]++;
+                    if (sector.nextIndex > sector.chunks[1]) {
                         chunks.shift();
-                        if (fileInfo.chunks.length) {
-                            fileInfo.nextIndex = fileInfo.chunks[0]++;
+                        if (sector.chunks.length) {
+                            sector.nextIndex = sector.chunks[0][0]++;
                         }
                         else {
                             // Use the nextIndex calculated above, if it's
                             // something the other side has already seen then
                             // they will send a control packet.
                             // Wrap around the end of the file.
-                            if (fileInfo.nextIndex >= this.size) {
-                                fileInfo.nextIndex = 0;
+                            if (sector.nextIndex >= this.size) {
+                                sector.nextIndex = 0;
                             }
                         }
                     }
-                    this.sendFilePacket(peer, fileInfo.nextIndex);
+                    this.sendFilePacket(peer, sector.nextIndex);
                 }
             }
         });
@@ -380,12 +351,9 @@ const _worker = new FileWorker();
 onmessage = ev => {
     const msg = ev.data;
     switch(msg.request) {
-        case 'init':
-            _worker.init(msg.max, msg.mtu, msg.pollingInterval);
-            break;
-        case 'open':
-            return _worker.open(msg.peer, msg.file).catch( err => {
-                console.error('file open error', err);
+        case 'create':
+            _worker.create(msg.file, msg.data).catch( err => {
+                console.error('file creation error', err);
             });
             break;
         case 'data':
@@ -393,14 +361,17 @@ onmessage = ev => {
                 console.error('file data error', err);
             });
             break;
-        case 'create':
-            _worker.create(msg.file, msg.data).catch( err => {
-                console.error('file creation error', err);
-            });
+        case 'init':
+            _worker.init(msg.max, msg.mtu, msg.pollingInterval);
             break;
         case 'list':
             _worker.generateFileList(msg.peer).catch( err => {
                 console.error('file list generation error', err);
+            });
+            break;
+        case 'open':
+            return _worker.open(msg.peer, msg.file).catch( err => {
+                console.error('file open error', err);
             });
             break;
         default:

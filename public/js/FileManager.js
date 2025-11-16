@@ -27,17 +27,15 @@ class FileManager {
     }
 
     async init() {
-        return navigator.storage.getDirectory()
-        .then(rootHandle => {
-            this.opfsRoot = rootHandle;
+        return new Promise( (resolve, reject) => {
             this.peerMgr.registerPeerHandler('filemanager', this.handlePeerEvent.bind(this));
             this.peerMgr.registerChannelHandler(this.options.defaultChannel, this.handleFileChannel.bind(this));
             this.fileInput.addEventListener('change', this.shareFiles.bind(this));
             this.fileWorker.addEventListener('error', this.handleFileWorkerError.bind(this));
             this.fileWorker.addEventListener('message', this.handleFileWorkerMessage.bind(this));
             this.fileWorker.addEventListener('messageerror', this.handleFileWorkerMessageError.bind(this));
-            this.fileWorker.postMessage({ request: 'init', max: this.options.capConnections??10, mtu: this.options.mtu??1400, pollingInterval: this.options.pollingInterval??50 });
-            return Promise.resolve(true);
+            this.fileWorker.postMessage({ request: 'init', max: this.options.capConnections??10, mtu: this.options.mtu??1400, pollingInterval: this.options.pollingInterval??10 });
+            return resolve(true);
         });
     }
 
@@ -53,24 +51,35 @@ class FileManager {
         const fileName = parts.pop();
         return parts.reduce( (p, v) => {
             return p.then( dh => dh.getDirectoryHandle(v, {create: true}));
-        }, Promise.resolve(this.opfsRoot))
+        }, Promise.resolve(navigator.storage.getDirectory()))
         .then( dh => dh.getFileHandle(fileName, {create: true}));
     }
 
-    async loadImage(filepath) {
+    async loadImage(filepath, data) {
         let newImage = this.imageTemplate.cloneNode(true);
         let imgElements = newImage.getElementsByTagName('img');
-        this.load(filepath)
-        .then( fh => fh.getFile())
-        .then( fileData => {
-            for (const img of imgElements) {
-                img.src = URL.createObjectURL(fileData);
-            }
-            this.imageDiv.appendChild(newImage);
-        })
-        .catch( err => {
-            console.error('Failed to load file ' + filepath, err);
-        });
+        if (data) {
+            return new Promise( (resolve, reject) => {
+                for (const img of imgElements) {
+                    img.src = URL.createObjectURL(data);
+                }
+                this.imageDiv.appendChild(newImage);
+                resolve(true);
+            });
+        }
+        else {
+            this.load(filepath)
+            .then( fh => fh.getFile())
+            .then( fileData => {
+                for (const img of imgElements) {
+                    img.src = URL.createObjectURL(fileData);
+                }
+                this.imageDiv.appendChild(newImage);
+            })
+            .catch( err => {
+                console.error('Failed to load file ' + filepath, err);
+            });
+        }
     }
 
     async handleFileWorkerMessage(ev) {
@@ -78,7 +87,7 @@ class FileManager {
         switch (msg.type) {
             case 'file':
                 // TODO - not all files are images...
-                this.loadImage(msg.file);
+                this.loadImage(msg.file, msg.data);
                 // New file to load into the DOM!
                 break;
             case 'list':
@@ -136,10 +145,7 @@ class FileManager {
         channel.onmessage = (msgEv) => {
             this.fileWorker.postMessage({ request: 'data', peer, file: channel.label, data: msgEv.data });
         };
-        this.load(channel.label)
-        .then( ignore => {
-            this.fileWorker.postMessage({ request: 'open', peer, file: channel.label });
-        });
+        this.fileWorker.postMessage({ request: 'open', peer, file: channel.label });
     }
 
     async handlePeerEvent(type, peer) {
@@ -163,29 +169,14 @@ class FileManager {
         const date = now.getUTCDate();
         const ts = now.getTime();
         const path = `/${year}/${month}/${date}/${ts}/`;
-        this.opfsRoot.getDirectoryHandle(year, {create: true})
-        .then( dh => dh.getDirectoryHandle(month, {create: true}))
-        .then( dh => dh.getDirectoryHandle(date, {create: true}))
-        .then( dh => dh.getDirectoryHandle(ts, {create: true}))
-        .then( dh => {
-            let promises = [];
-            // Copy the input files into the Origin Private File System so our
-            // worker will find it when we open the channel.
-            for (const file of this.fileInput.files) {
-                promises.push(dh.getFileHandle(file.name, {create: true}).then( fh => {
-                    let reader = new FileReader();
-                    let filename = path + file.name;
-                    reader.onload = ev => {
-                        this.fileWorker.postMessage({ request: 'create', file: filename, data: reader.result }, [reader.result]);
-                    };
-                    reader.readAsArrayBuffer(file);
-                }));
-            }
-            return Promise.all(promises);
-        })
-        .catch( err => {
-            console.error('Error while sharing files', err);
-        });
+        for (const file of this.fileInput.files) {
+            let reader = new FileReader();
+            let filename = path + file.name;
+            reader.onload = ev => {
+                this.fileWorker.postMessage({ request: 'create', file: filename, data: reader.result }, [reader.result]);
+            };
+            reader.readAsArrayBuffer(file);
+        }
     }
 }
 
