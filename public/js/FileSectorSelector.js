@@ -18,8 +18,30 @@
 class FileSectorSelector {
     constructor(numChunks, numSectors) {
         this.numSectors = parseInt(numSectors);
-        this.chunksPerSector = Math.floor(parseInt(numChunks)/this.numSectors);
+        this.numChunks = parseInt(numChunks);
+        this.chunksPerSector = this.numChunks/this.numSectors;
         this.sectorLoad = (new Array(this.numSectors)).fill().map(n => new Set);
+        this.sectorBoundaries = [];
+        // Generate the sector boundaries.
+        // We need the floor of the chunks per sector.
+        let cpsFloor = Math.floor(this.chunksPerSector);
+        // Also track the remaining chunks.
+        let remaining = this.numChunks - (cpsFloor * this.numSectors);
+        let start = 0;
+        var end;
+        for(let i=0;i<this.numSectors;++i) {
+            // If we have less chunks then sectors in this file then we want
+            // to break out early.
+            if (cpsFloor === 0 && i >= remaining) break;
+            end = start + cpsFloor - 1;
+            // Split the remaining over enough of the sectors to cover the
+            // additional chunks.
+            if (i<remaining) {
+                ++end;
+            }
+            this.sectorBoundaries.push([start, end]);
+            start = end + 1;
+        }
     }
 
     selectSector(rangeList, peerInfo, currentSector) {
@@ -28,16 +50,25 @@ class FileSectorSelector {
         .then( sectorDetailList => {
             // Fill in the details. Count how many chunks within the sector is
             // needed and track the ranges needed for each sector.
-            var index, lastSector, end, sectorEnd, start;
+            var index, firstSector,lastSector, end, sectorEnd, start, sectorBoundary;
             rangeList.forEach( range => {
+                // Use the first value in the range to calculate the first
+                // sector this range covers.
                 start = range[0];
-                lastSector = Math.floor(parseInt(range[1])/this.chunksPerSector);
-                for(index = Math.floor(parseInt(range[0])/this.chunksPerSector);index <= lastSector; index++) {
-                    sectorEnd = (this.chunksPerSector*(index+1))-1;
-                    end = sectorEnd < range[1] ? sectorEnd : range[1];
+                firstSector = this.sectorBoundaries.findIndex( _sectorBoundary => start >= _sectorBoundary[0] && start <= _sectorBoundary[1]);
+                // Use the second value to calculate the last sector.
+                end = range[1];
+                lastSector = this.sectorBoundaries.findIndex( _sectorBoundary => end >= _sectorBoundary[0] && end <= _sectorBoundary[1]);
+                // Iterate from the first to last calculated sectors.
+                for (index = firstSector;index<=lastSector;index++) {
+                    sectorBoundary = this.sectorBoundaries[index];
+                    // Calculate the start and end of this sector within the
+                    // range.
+                    start = sectorBoundary[0] > range[0] ? sectorBoundary[0] : range[0];
+                    end = sectorBoundary[1] < range[1] ? sectorBoundary[1] : range[1];
+                    // Fill the sector details we'll use to calculate scores.
                     sectorDetailList[index].count += (end - start + 1);
                     sectorDetailList[index].chunks.push([start,end]);
-                    start = end + 1;
                 }
             });
             return Promise.resolve(sectorDetailList);

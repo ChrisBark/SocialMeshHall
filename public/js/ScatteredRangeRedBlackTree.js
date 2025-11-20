@@ -100,10 +100,11 @@ class ScatteredRangeRedBlackTree {
     }
 
     // Returns a boolean to indicate it all indexes are accounted for.
-    async isComplete() {
-        return this._root &&
-               this._root.range[0] === 0 &&
-               this._root.range[1] === this._lastIndex;
+    isComplete() {
+        const root = this._root;
+        return !!root &&
+               root.range[0] === 0 &&
+               root.range[1] === this._lastIndex;
     }
 
     static test() {

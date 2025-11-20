@@ -167,6 +167,9 @@ class FileHandle {
             if (sector?.chunks?.length) {
                 peerInfo[this.filepath].currentSector = sector;
             }
+            else {
+                delete peerInfo[this.filepath].currentSector;
+            }
         });
     }
 
@@ -197,6 +200,12 @@ class FileHandle {
                     // entire file.
                     if (this.rangeTree.isComplete()) {
                         return this.write(file, this.buffer)
+                        .catch(err => {
+                            // If we're open in another tab and didn't use
+                            // readwrite-unsafe then createSyncAccessHandle()
+                            // will probably fail.
+                            return Promise.resolve(false);
+                        })
                         .then( sizeChanged => {
                             postMessage({
                                 type: 'file',
@@ -240,8 +249,9 @@ class FileHandle {
     async sendFilePacket(peer, index) {
         // If there's less the the maximum transmission units left we need to
         // send less then the mtu.
+        const packetStart = this.fileWorker.mtu * index;
         const packetBoundary = this.fileWorker.mtu * (index + 1);
-        let size = (packetBoundary > this.size) ? this.size - (packetBoundary - this.fileWorker.mtu) : this.fileWorker.mtu;
+        let size = (packetBoundary > this.size) ? this.size % this.fileWorker.mtu : this.fileWorker.mtu;
         // Create a buffer of the index for copying into the data buffer.
         let dataIndex = new Uint32Array(1);
         dataIndex[0] = index;
@@ -250,7 +260,7 @@ class FileHandle {
         // Copy the index in first.
         data.set(dataIndex.buffer);
         // Copy the file data in.
-        data.set(this.buffer.slice(index, index + size), 4);
+        data.set(this.buffer.slice(packetStart, packetStart + size), 4);
         postMessage({
             type: 'send',
             file: this.filepath,
