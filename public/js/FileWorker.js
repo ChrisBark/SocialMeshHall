@@ -247,20 +247,20 @@ class FileHandle {
     }
 
     async sendFilePacket(peer, index) {
+        const packetStart = this.fileWorker.mtu * index;
         // If there's less the the maximum transmission units left we need to
         // send less then the mtu.
-        const packetStart = this.fileWorker.mtu * index;
-        const packetBoundary = this.fileWorker.mtu * (index + 1);
-        let size = (packetBoundary > this.size) ? this.size % this.fileWorker.mtu : this.fileWorker.mtu;
-        // Create a buffer of the index for copying into the data buffer.
-        let dataIndex = new Uint32Array(1);
-        dataIndex[0] = index;
+        let size = ((this.fileWorker.mtu * (index + 1)) > this.size) ? this.size % this.fileWorker.mtu
+                                                                     : this.fileWorker.mtu;
         // Create the data buffer.
         let data = new Uint8Array(size+4);
+        // Create a buffer of the index for copying into the data buffer.
+        let dataIndex = new Uint32Array([index]);
         // Copy the index in first.
-        data.set(dataIndex.buffer);
+        data.set(dataIndex);
         // Copy the file data in.
-        data.set(this.buffer.slice(packetStart, packetStart + size), 4);
+        data.set(new Uint8Array(this.buffer.slice(packetStart, packetStart + size)), 4);
+        // Send the data.
         postMessage({
             type: 'send',
             file: this.filepath,
@@ -272,7 +272,7 @@ class FileHandle {
     async sendFilePackets() {
         (this.fileWorker?.peers??[]).forEach( (peerInfo, peer) => {
             const fileInfo = peerInfo[this.filepath];
-            if (fileInfo.currentSector) {
+            if (fileInfo?.currentSector) {
                 const sector = fileInfo.currentSector;
                 // See if we have a range of chunks to send.
                 if (sector.chunks?.length) {
@@ -341,17 +341,17 @@ class FileWorker {
     async handleFileData(peer, file, data) {
         const fileH = this.files.get(file);
         if (!fileH) return;
-        const uint32View = new Uint32Array(data);
+        const uint32View = new Uint32Array(data.slice(0,4));
         const index = uint32View[0];
         // Lazy-load peer info.
         if (!this.peers.has(peer)) {
             this.peers.set(peer, {});
         }
         if (index === 0xFFFFFFFF) {
-            return fileH.handleControlPacket(peer, file, uint32View.slice(1));
+            return fileH.handleControlPacket(peer, file, new Uint32Array(data.slice(4)));
         }
         else {
-            return fileH.handleDataPacket(peer, file, index, new Uint8Array(uint32View.slice(1).buffer));
+            return fileH.handleDataPacket(peer, file, index, new Uint8Array(data.slice(4)));
         }
     }
 }
