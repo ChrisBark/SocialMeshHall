@@ -55,29 +55,36 @@ class FileManager {
         .then( dh => dh.getFileHandle(fileName, {create: true}));
     }
 
-    async loadImage(filepath, data) {
+    async loadSharedFile(filepath, data) {
+        const fileext = filepath.split('.').pop().toLowerCase();
+        switch(fileext) {
+            case 'png':
+                return this.loadImage(filepath, fileext, data);
+            default:
+                break;
+        }
+    }
+
+    async loadImage(filepath, fileext, data) {
         let newImage = this.imageTemplate.cloneNode(true);
         let imgElements = newImage.getElementsByTagName('img');
         if (data) {
             return new Promise( (resolve, reject) => {
                 for (const img of imgElements) {
-                    img.src = URL.createObjectURL(data);
+                    img.src = URL.createObjectURL(new Blob([data], { type: 'image/' + fileext }));
                 }
                 this.imageDiv.appendChild(newImage);
                 resolve(true);
             });
         }
         else {
-            this.load(filepath)
+            return this.load(filepath)
             .then( fh => fh.getFile())
             .then( fileData => {
                 for (const img of imgElements) {
                     img.src = URL.createObjectURL(fileData);
                 }
                 this.imageDiv.appendChild(newImage);
-            })
-            .catch( err => {
-                console.error('Failed to load file ' + filepath, err);
             });
         }
     }
@@ -86,9 +93,10 @@ class FileManager {
         const msg = ev.data;
         switch (msg.type) {
             case 'file':
-                // TODO - not all files are images...
-                this.loadImage(msg.file, msg.data);
                 // New file to load into the DOM!
+                this.loadSharedFile(msg.file, msg.data).catch( err => {
+                    console.error('Failed to load image ' + msg.file, err);
+                });
                 break;
             case 'list':
                 // Create channels for any files the peer doesn't have.
