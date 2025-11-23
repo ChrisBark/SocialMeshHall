@@ -59,7 +59,14 @@ class FileManager {
         const fileext = filepath.split('.').pop().toLowerCase();
         switch(fileext) {
             case 'png':
+            case 'bmp':
+            case 'gif':
                 return this.loadImage(filepath, fileext, data);
+            case 'jpeg':
+            case 'jpg':
+                return this.loadImage(filepath, 'jpeg', data);
+            case 'svg':
+                return this.loadImage(filepath, 'svg+xml', data);
             default:
                 break;
         }
@@ -181,7 +188,10 @@ class FileManager {
             let reader = new FileReader();
             let filename = path + file.name;
             reader.onload = ev => {
-                this.fileWorker.postMessage({ request: 'create', file: filename, data: reader.result }, [reader.result]);
+                this.loadSharedFile(filename, reader.result)
+                .then( result => {
+                    this.fileWorker.postMessage({ request: 'create', file: filename, data: reader.result }, [reader.result]);
+                });
             };
             reader.readAsArrayBuffer(file);
         }

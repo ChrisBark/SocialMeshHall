@@ -191,6 +191,10 @@ class FileHandle {
                 });
             }
             else {
+                if (index > this.numChunks) {
+                    console.log('got index ' + index + ' with only ' + this.numChunks + ' chunks expected');
+                    return;
+                }
                 this.rangeTree.add(index)
                 .then( ignore => {
                     // Copy the data into our file buffer.
@@ -282,15 +286,9 @@ class FileHandle {
                         if (sector.chunks.length) {
                             sector.nextIndex = sector.chunks[0][0]++;
                         }
-                        else {
-                            // Use the nextIndex calculated above, if it's
-                            // something the other side has already seen then
-                            // they will send a control packet.
-                            // Wrap around the end of the file.
-                            if (sector.nextIndex >= this.size) {
-                                sector.nextIndex = 0;
-                            }
-                        }
+                    }
+                    if (sector.nextIndex > this.numChunks) {
+                        sector.nextIndex = 0;
                     }
                     this.sendFilePacket(peer, sector.nextIndex);
                 }
