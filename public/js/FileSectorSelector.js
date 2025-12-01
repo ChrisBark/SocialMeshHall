@@ -50,7 +50,7 @@ class FileSectorSelector {
         .then( sectorDetailList => {
             // Fill in the details. Count how many chunks within the sector is
             // needed and track the ranges needed for each sector.
-            var index, firstSector,lastSector, end, sectorEnd, start, sectorBoundary;
+            var index, firstSector, lastSector, end, sectorEnd, start, sectorBoundary;
             rangeList.forEach( range => {
                 // Use the first value in the range to calculate the first
                 // sector this range covers.
@@ -98,3 +98,4 @@ class FileSectorSelector {
         });
     }
 }
+

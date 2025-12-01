@@ -26,8 +26,8 @@ class FileHandle {
         this.filepath = filepath;
         this.numSectors = fileWorker.maxConnections;
         this.queue = [];
-        this.ctrlQueue = [];
         this.pollH = setInterval(this.sendFilePackets.bind(this), fileWorker.pollingInterval);
+        this.ctrlPacketTSMap = {};
     }
 
     async write(file, data) {
@@ -70,7 +70,7 @@ class FileHandle {
             return Promise.resolve(sizeChanged);
         })
         .catch( err => {
-            console.log('load file error', err);
+            console.error('load file error', err);
         });
     }
 
@@ -143,14 +143,16 @@ class FileHandle {
             // of the file.
             if (sizeChanged) {
                 this.fileWorker.peers.forEach( (peerInfo, _peer) => {
-                    this.sendControlPacket(_peer).catch( err => {
-                        console.error('Error sending control packet to peer', _peer, err);
-                    });
+                    if (_peer !== peer) {
+                        this.sendControlPacket(_peer).catch( err => {
+                            console.error('Error sending control packet to peer', _peer, err);
+                        });
+                    }
                 });
             }
             let rangeList = [];
             // Determine what they need.
-            for(let i=0;i<buffer.length-2;i+=2) {
+            for(let i=1;i<buffer.length-2;i+=2) {
                 rangeList.push([buffer[i*2], buffer[(i*2)+1]]);
             }
             // Generate an array of ranges that we have and they need.
@@ -169,6 +171,9 @@ class FileHandle {
             }
             else {
                 delete peerInfo[this.filepath].currentSector;
+                this.sendControlPacket(peer).catch(err => {
+                    console.error('Timeout failed to send control packet', err);
+                });
             }
         });
     }
@@ -192,7 +197,7 @@ class FileHandle {
             }
             else {
                 if (index > this.numChunks) {
-                    console.log('got index ' + index + ' with only ' + this.numChunks + ' chunks expected');
+                    console.error('got index ' + index + ' with only ' + this.numChunks + ' chunks expected');
                     return;
                 }
                 this.rangeTree.add(index)
@@ -230,6 +235,13 @@ class FileHandle {
     // The control packet includes the size of the file and the list of file
     // chunks that we have.
     async sendControlPacket(peer) {
+        // We limit how many control packets we send out in a given time
+        // period.
+        if (this.ctrlPacketTSMap[peer] && this.ctrlPacketTSMap[peer] > Date.now()) {
+            return Promise.resolve(true);
+        }
+        // Set the next time that we can send out a control packet.
+        this.ctrlPacketTSMap[peer] = Date.now() + 5000;
         return this.rangeTree.generateRange()
         .then( rangeList => {
             let data = new Uint32Array((rangeList.length*2) + 3);
@@ -259,9 +271,9 @@ class FileHandle {
         // Create the data buffer.
         let data = new Uint8Array(size+4);
         // Create a buffer of the index for copying into the data buffer.
-        let dataIndex = new Uint32Array([index]);
+        const dataView = new DataView(data.buffer);
         // Copy the index in first.
-        data.set(dataIndex);
+        dataView.setUint32(0, index, true);
         // Copy the file data in.
         data.set(new Uint8Array(this.buffer.slice(packetStart, packetStart + size)), 4);
         // Send the data.
@@ -286,9 +298,11 @@ class FileHandle {
                         if (sector.chunks.length) {
                             sector.nextIndex = sector.chunks[0][0]++;
                         }
-                    }
-                    if (sector.nextIndex > this.numChunks) {
-                        sector.nextIndex = 0;
+                        else {
+                            return this.sendControlPacket(peer).catch(err => {
+                                console.error('Failed to send control packet', err);
+                            });
+                        }
                     }
                     this.sendFilePacket(peer, sector.nextIndex);
                 }
@@ -303,10 +317,11 @@ class FileWorker {
         this.files = new Map();
     }
 
-    async init(maxConnections, mtu, pollingInterval) {
+    async init(maxConnections, mtu, pollingInterval, ctrlPacketRetry) {
         this.maxConnections = maxConnections;
         this.mtu = mtu;
         this.pollingInterval = pollingInterval;
+        this.ctrlPacketRetry = ctrlPacketRetry;
     }
 
     async create(file, data) {
@@ -370,7 +385,7 @@ onmessage = ev => {
             });
             break;
         case 'init':
-            _worker.init(msg.max, msg.mtu, msg.pollingInterval);
+            _worker.init(msg.max, msg.mtu, msg.pollingInterval, msg.ctrlPacketRetry);
             break;
         case 'list':
             _worker.generateFileList(msg.peer).catch( err => {

@@ -34,7 +34,7 @@ class FileManager {
             this.fileWorker.addEventListener('error', this.handleFileWorkerError.bind(this));
             this.fileWorker.addEventListener('message', this.handleFileWorkerMessage.bind(this));
             this.fileWorker.addEventListener('messageerror', this.handleFileWorkerMessageError.bind(this));
-            this.fileWorker.postMessage({ request: 'init', max: this.options.capConnections??10, mtu: this.options.mtu??1400, pollingInterval: this.options.pollingInterval??10 });
+            this.fileWorker.postMessage({ request: 'init', max: this.options.capConnections??10, mtu: this.options.mtu??1400, pollingInterval: this.options.pollingInterval??10, ctrlPacketRetry: this.options.ctrlPacketRetry??5000 });
             return resolve(true);
         });
     }
