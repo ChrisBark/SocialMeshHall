@@ -27,7 +27,8 @@ class FileHandle {
         this.numSectors = fileWorker.maxConnections;
         this.queue = [];
         this.pollH = setInterval(this.sendFilePackets.bind(this), fileWorker.pollingInterval);
-        this.ctrlPacketTSMap = {};
+        this.ctrlPacketThrottle = {};
+        this.ctrlPacketRetry = {};
     }
 
     async write(file, data) {
@@ -129,6 +130,7 @@ class FileHandle {
 
     async handleControlPacket(peer, file, buffer) {
         const peerInfo = this.fileWorker.peers.get(peer);
+        let otherSideComplete = false;
         if (!peerInfo) {
             return Promise.reject('Control packet from unknown peer: ' + peer + ' file: ' + file);
         }
@@ -155,6 +157,10 @@ class FileHandle {
             for(let i=1;i<buffer.length-2;i+=2) {
                 rangeList.push([buffer[i*2], buffer[(i*2)+1]]);
             }
+            // Determine if the other side has the entire file.
+            otherSideComplete = rangeList.length === 1 &&
+                                rangeList[0][0] === 0 &&
+                                rangeList[0][1] === (this.numChunks - 1);
             // Generate an array of ranges that we have and they need.
             return this.rangeTree.generateAvailableIndexes(rangeList);
         })
@@ -172,13 +178,31 @@ class FileHandle {
             else {
                 delete peerInfo[this.filepath].currentSector;
                 // If there is nothing to send, but the file hasn't been
-                // completely received then try again in a few seconds.
-                if (this.size && !this.rangeTree?.isComplete()) {
-                    setTimeout(() => {
+                // completely received then try again.
+                if (otherSideComplete && this.rangeTree?.isComplete()) {
+                    postMessage({
+                        type: 'close',
+                        file: this.filepath,
+                        peer: peer
+                    });
+                }
+                else if (!this.rangeTree?.isComplete()) {
+                    // If the other side has the complete file then don't wait.
+                    if (otherSideComplete) {
                         this.sendControlPacket(peer).catch(err => {
-                            console.error('Timeout failed to send control packet', err);
+                            console.error('Failed to renegotiate with control packet', err);
                         });
-                    }, this.fileWorker.ctrlPacketRetry??5000);
+                    }
+                    // If the other side doesn't have the complete file then
+                    // wait a few seconds and try again.
+                    else if (!this.ctrlPacketRetry[peer]) {
+                        this.ctrlPacketRetry[peer] = setTimeout(() => {
+                            this.ctrlPacketRetry[peer] = null;
+                            this.sendControlPacket(peer).catch(err => {
+                                console.error('Timeout failed to send control packet', err);
+                            });
+                        }, Math.floor(Math.random()*2000));
+                    }
                 }
             }
         });
@@ -241,13 +265,25 @@ class FileHandle {
     // The control packet includes the size of the file and the list of file
     // chunks that we have.
     async sendControlPacket(peer) {
+        if (!this.ctrlPacketThrottle[peer]) {
+            this.ctrlPacketThrottle[peer] = {count: 0};
+        }
         // We limit how many control packets we send out in a given time
-        // period.
-        if (this.ctrlPacketTSMap[peer] && this.ctrlPacketTSMap[peer] > Date.now()) {
+        // period with a throttle.
+        if (this.ctrlPacketThrottle[peer].timeout) {
+            ++this.ctrlPacketThrottle[peer].count;
             return Promise.resolve(true);
         }
-        // Set the next time that we can send out a control packet.
-        this.ctrlPacketTSMap[peer] = Date.now() + 5000;
+        // Create a throttle timer for this peer.
+        this.ctrlPacketThrottle[peer].timeout = setTimeout(() => {
+            this.ctrlPacketThrottle[peer].timeout = null;
+            // Only call sendControlPacket if someone tried to send it while
+            // the throttle was active.
+            if (this.ctrlPacketThrottle[peer].count) {
+                this.ctrlPacketThrottle[peer].count = 0;
+                this.sendControlPacket(peer);
+            }
+        }, Math.floor(Math.random()*5000));
         return this.rangeTree.generateRange()
         .then( rangeList => {
             let data = new Uint32Array((rangeList.length*2) + 3);
@@ -325,11 +361,10 @@ class FileWorker {
         this.files = new Map();
     }
 
-    async init(maxConnections, mtu, pollingInterval, ctrlPacketRetry) {
+    async init(maxConnections, mtu, pollingInterval) {
         this.maxConnections = maxConnections;
         this.mtu = mtu;
         this.pollingInterval = pollingInterval;
-        this.ctrlPacketRetry = ctrlPacketRetry;
     }
 
     async create(file, data) {
@@ -394,7 +429,7 @@ onmessage = ev => {
             });
             break;
         case 'init':
-            _worker.init(msg.max, msg.mtu, msg.pollingInterval, msg.ctrlPacketRetry);
+            _worker.init(msg.max, msg.mtu, msg.pollingInterval);
             break;
         case 'list':
             _worker.generateFileList(msg.peer).catch( err => {

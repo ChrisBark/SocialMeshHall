@@ -1,13 +1,32 @@
 <html>
 <head>
+    <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
 <input type="file" id="files" multiple />
 <div id="stuff">
 </div>
 <div id="templates">
-    <div id="picture" class="picture">
+    <div id="picture" class="post">
         <img>
+        <form name="comment">
+            <input type="text" name="comment">
+            <input type="submit">
+        </form>
+    </div>
+    <div id="video" class="post">
+        <video>
+        <form name="comment">
+            <input type="text" name="comment">
+            <input type="submit">
+        </form>
+    </div>
+    <div id="comment" class="post">
+        <p></p>
+        <form name="comment">
+            <input type="text" name="comment">
+            <input type="submit">
+        </form>
     </div>
 </div>
 <script src="/config.js"></script>
@@ -16,10 +35,12 @@
 <script type='application/javascript'>
 document.addEventListener("DOMContentLoaded", () => {
     let imageTemplate = document.getElementById('picture');
+    let videoTemplate = document.getElementById('video');
+    let commentTemplate = document.getElementById('comment');
     let stuff = document.getElementById('stuff');
     let fileInput = document.getElementById('files');
     let peerMgr = new PeerManager(config.name, config.mainChannel, config.defaultChannel, config.options);
-    let fileMgr = new FileManager(fileInput, peerMgr, imageTemplate, stuff, config);
+    let fileMgr = new FileManager(fileInput, peerMgr, imageTemplate, videoTemplate, commentTemplate, stuff, config);
     fileMgr.init()
     .then( ignore => {
         return peerMgr.connect(config.startURL);

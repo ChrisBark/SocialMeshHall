@@ -16,12 +16,14 @@
  */
 
 class FileManager {
-    constructor(fileInput, peerMgr, imageTemplate, imageDiv, options) {
+    constructor(fileInput, peerMgr, imageTemplate, videoTemplate, commentTemplate, postsDiv, options) {
         this.peerMgr = peerMgr;
         this.options = options;
         this.fileInput = fileInput;
         this.imageTemplate = imageTemplate;
-        this.imageDiv = imageDiv;
+        this.videoTemplate = videoTemplate;
+        this.commentTemplate = commentTemplate;
+        this.postsDiv = postsDiv;
         this.fileWorker = new Worker('../js/FileWorker.js');
         this.fileChannels = new Map();
     }
@@ -34,7 +36,7 @@ class FileManager {
             this.fileWorker.addEventListener('error', this.handleFileWorkerError.bind(this));
             this.fileWorker.addEventListener('message', this.handleFileWorkerMessage.bind(this));
             this.fileWorker.addEventListener('messageerror', this.handleFileWorkerMessageError.bind(this));
-            this.fileWorker.postMessage({ request: 'init', max: this.options.capConnections??10, mtu: this.options.mtu??1400, pollingInterval: this.options.pollingInterval??10, ctrlPacketRetry: this.options.ctrlPacketRetry??5000 });
+            this.fileWorker.postMessage({ request: 'init', max: this.options.capConnections??10, mtu: this.options.mtu??1400, pollingInterval: this.options.pollingInterval??10 });
             return resolve(true);
         });
     }
@@ -67,6 +69,9 @@ class FileManager {
                 return this.loadImage(filepath, 'jpeg', data);
             case 'svg':
                 return this.loadImage(filepath, 'svg+xml', data);
+            case 'mp4':
+            case 'wemb':
+                return this.loadVideo(filepath, fileext, data);
             default:
                 break;
         }
@@ -75,25 +80,26 @@ class FileManager {
     async loadImage(filepath, fileext, data) {
         let newImage = this.imageTemplate.cloneNode(true);
         let imgElements = newImage.getElementsByTagName('img');
-        if (data) {
-            return new Promise( (resolve, reject) => {
-                for (const img of imgElements) {
-                    img.src = URL.createObjectURL(new Blob([data], { type: 'image/' + fileext }));
-                }
-                this.imageDiv.appendChild(newImage);
-                resolve(true);
-            });
-        }
-        else {
-            return this.load(filepath)
-            .then( fh => fh.getFile())
-            .then( fileData => {
-                for (const img of imgElements) {
-                    img.src = URL.createObjectURL(fileData);
-                }
-                this.imageDiv.appendChild(newImage);
-            });
-        }
+        return new Promise( (resolve, reject) => {
+            for (const img of imgElements) {
+                img.src = URL.createObjectURL(new Blob([data], { type: 'image/' + fileext }));
+            }
+            this.postsDiv.appendChild(newImage);
+            resolve(true);
+        });
+    }
+
+    async loadVideo(filepath, fileext, data) {
+        let newVideo = this.videoTemplate.cloneNode(true);
+        let videoElements = newVideo.getElementsByTagName('video');
+        return new Promise( (resolve, reject) => {
+            for (const video of videoElements) {
+                video.src = URL.createObjectURL(new Blob([data], { type: 'video/' + fileext }));
+                video.load();
+            }
+            this.postsDiv.appendChild(newVideo);
+            resolve(true);
+        });
     }
 
     async handleFileWorkerMessage(ev) {
@@ -102,7 +108,7 @@ class FileManager {
             case 'file':
                 // New file to load into the DOM!
                 this.loadSharedFile(msg.file, msg.data).catch( err => {
-                    console.error('Failed to load image ' + msg.file, err);
+                    console.error('Failed to load shared file ' + msg.file, err);
                 });
                 break;
             case 'list':
@@ -132,6 +138,16 @@ class FileManager {
                         this.peerMgr.createChannel(msg.file, peer)
                     }
                 });
+                break;
+            case 'close':
+                if (this.fileChannels.has(msg.peer)) {
+                    const channelMap = this.fileChannels.get(msg.peer);
+                    if (channelMap.has(msg.file)) {
+                        const channel = channelMap.get(msg.file);
+                        channelMap.delete(msg.file);
+                        channel.close();
+                    }
+                }
                 break;
             default:
                 console.error('unknown message received from file worker', msg, ev);

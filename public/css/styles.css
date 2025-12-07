@@ -1,0 +1,22 @@
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+img {
+    padding: 10px;
+    display: block;
+    margin: 10px auto;
+    max-height: 80%;
+    max-width: 80%;
+}
+video {
+    padding: 10px;
+    display: block;
+    margin: 10px auto;
+    max-height: 100%;
+    max-width: 100%;
+}
+#templates {
+    display: none;
+}
