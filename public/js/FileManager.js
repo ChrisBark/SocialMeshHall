@@ -72,17 +72,40 @@ class FileManager {
             case 'mp4':
             case 'wemb':
                 return this.loadVideo(filepath, fileext, data);
+            case 'txt':
+                return this.loadComment(filepath, data);
             default:
                 break;
         }
     }
 
+    async loadComment(filepath, data) {
+        const decoder = new TextDecoder();
+        const comment = decoder.decode(data);
+    }
+
     async loadImage(filepath, fileext, data) {
         let newImage = this.imageTemplate.cloneNode(true);
         let imgElements = newImage.getElementsByTagName('img');
+        let formElements = newImage.getElementsByTagName('form');
         return new Promise( (resolve, reject) => {
             for (const img of imgElements) {
                 img.src = URL.createObjectURL(new Blob([data], { type: 'image/' + fileext }));
+            }
+            for (const form of formElements) {
+                const submitButton = form.querySelector('input[type="submit"]');
+                submitButton.addEventListener('click', ev => {
+                    ev.preventDefault();
+                    const ts = Date.now();
+                    const filename = filepath.slice(0, filepath.lastIndexOf('/') + 1) + ts + '/' + ts + '.txt';
+                    const formData = new FormData(form);
+                    const encoder = new TextEncoder();
+                    const comment = encoder.encode(formData.get('comment'));
+                    this.loadSharedFile(filename, comment)
+                    .then( result => {
+                        this.fileWorker.postMessage({ request: 'create', file: filename, data: comment });
+                    });
+                });
             }
             this.postsDiv.appendChild(newImage);
             resolve(true);
@@ -92,10 +115,26 @@ class FileManager {
     async loadVideo(filepath, fileext, data) {
         let newVideo = this.videoTemplate.cloneNode(true);
         let videoElements = newVideo.getElementsByTagName('video');
+        let formElements = newImage.getElementsByTagName('form');
         return new Promise( (resolve, reject) => {
             for (const video of videoElements) {
                 video.src = URL.createObjectURL(new Blob([data], { type: 'video/' + fileext }));
                 video.load();
+            }
+            for (const form of formElements) {
+                const submitButton = form.querySelector('input[type="submit"]');
+                submitButton.addEventListener('click', ev => {
+                    ev.preventDefault();
+                    const ts = Date.now();
+                    const filename = filepath.slice(0, filepath.lastIndexOf('/') + 1) + ts + '/' + ts + '.txt';
+                    const formData = new FormData(form);
+                    const encoder = new TextEncoder();
+                    const comment = encoder.encode(formData.get('comment'));
+                    this.loadSharedFile(filename, comment)
+                    .then( result => {
+                        this.fileWorker.postMessage({ request: 'create', file: filename, data: comment });
+                    });
+                });
             }
             this.postsDiv.appendChild(newVideo);
             resolve(true);
