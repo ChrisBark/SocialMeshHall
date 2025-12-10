@@ -86,12 +86,15 @@ class FileHandle {
     }
 
     open(peer, file) {
+        // If we don't have the complete file then start a swarm.
+        if (!this.rangeTree?.isComplete()) {
+            this.swarm();
+        }
         // If we know the size of this file then just send a control
         // packet 
         if (peer && this.size) {
             return this.sendControlPacket(peer);
         }
-        this.swarm();
     }
 
     async swarm() {
@@ -154,7 +157,7 @@ class FileHandle {
             }
             let rangeList = [];
             // Determine what they need.
-            for(let i=1;i<buffer.length-2;i+=2) {
+            for(let i=1;i<buffer.length/2;i++) {
                 rangeList.push([buffer[i*2], buffer[(i*2)+1]]);
             }
             // Determine if the other side has the entire file.
@@ -176,7 +179,7 @@ class FileHandle {
                 peerInfo[this.filepath].currentSector = sector;
             }
             else {
-                delete peerInfo[this.filepath].currentSector;
+                peerInfo[this.filepath].currentSector = null;
                 // If there is nothing to send, but the file hasn't been
                 // completely received then try again.
                 if (otherSideComplete && this.rangeTree?.isComplete()) {
@@ -201,7 +204,7 @@ class FileHandle {
                             this.sendControlPacket(peer).catch(err => {
                                 console.error('Timeout failed to send control packet', err);
                             });
-                        }, Math.floor(Math.random()*2000));
+                        }, Math.floor(Math.random()*5000)+5000);
                     }
                 }
             }
@@ -283,7 +286,7 @@ class FileHandle {
                 this.ctrlPacketThrottle[peer].count = 0;
                 this.sendControlPacket(peer);
             }
-        }, Math.floor(Math.random()*5000));
+        }, Math.floor(Math.random()*1000)+1000);
         return this.rangeTree.generateRange()
         .then( rangeList => {
             let data = new Uint32Array((rangeList.length*2) + 3);
@@ -329,25 +332,39 @@ class FileHandle {
 
     async sendFilePackets() {
         (this.fileWorker?.peers??[]).forEach( (peerInfo, peer) => {
+            // Grab the current sector information for this file.
             const fileInfo = peerInfo[this.filepath];
-            if (fileInfo?.currentSector) {
-                const sector = fileInfo.currentSector;
+            const sector = fileInfo?.currentSector;
+            if (sector) {
                 // See if we have a range of chunks to send.
                 if (sector.chunks?.length) {
-                    sector.nextIndex = sector.chunks[0][0]++;
-                    if (sector.nextIndex > sector.chunks[0][1]) {
+                    // Increment the start of the first entry in the
+                    // range list, but use the value form before the
+                    // increment.
+                    let nextIndex = sector.chunks[0][0]++;
+                    // Compare the calculated index against the end of the
+                    // first entry in the range list.
+                    if (nextIndex > sector.chunks[0][1]) {
+                        // If we've exhausted that range then discare the
+                        // first entry in the range list.
                         sector.chunks.shift();
+                        // If there are any more chunks then move onto the
+                        // next chunk.
                         if (sector.chunks.length) {
-                            sector.nextIndex = sector.chunks[0][0]++;
+                            nextIndex = sector.chunks[0][0]++;
                         }
                         else {
+                            // We may be done. Trigger a control packet to
+                            // help determine if we are done.
                             return this.sendControlPacket(peer).catch(err => {
                                 console.error('Failed to send control packet', err);
                             });
                         }
                     }
-                    if (sector.nextIndex < this.numChunks) {
-                        this.sendFilePacket(peer, sector.nextIndex);
+                    // Just in case we somehow end up with an index that is
+                    // out of range.
+                    if (nextIndex < this.numChunks) {
+                        this.sendFilePacket(peer, nextIndex);
                     }
                 }
             }
@@ -379,6 +396,9 @@ class FileWorker {
         if (!this.files.has(file)) {
             this.files.set(file, new FileHandle(this, file));
         }
+        if (!this.peers.has(peer)) {
+            this.peers.set(peer, {});
+        }
         return this.files.get(file).open(peer, file);
     }
 
@@ -400,7 +420,7 @@ class FileWorker {
         // Use a data view to extract the index.
         const dataView = new DataView(data);
         const index = dataView.getUint32(0, true);
-        // Lazy-load peer info.
+        // In case data arrives early.
         if (!this.peers.has(peer)) {
             this.peers.set(peer, {});
         }

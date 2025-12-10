@@ -59,16 +59,25 @@ class FileSectorSelector {
                 // Use the second value to calculate the last sector.
                 end = range[1];
                 lastSector = this.sectorBoundaries.findIndex( _sectorBoundary => end >= _sectorBoundary[0] && end <= _sectorBoundary[1]);
-                // Iterate from the first to last calculated sectors.
-                for (index = firstSector;index<=lastSector;index++) {
-                    sectorBoundary = this.sectorBoundaries[index];
-                    // Calculate the start and end of this sector within the
-                    // range.
-                    start = sectorBoundary[0] > range[0] ? sectorBoundary[0] : range[0];
-                    end = sectorBoundary[1] < range[1] ? sectorBoundary[1] : range[1];
-                    // Fill the sector details we'll use to calculate scores.
-                    sectorDetailList[index].count += (end - start + 1);
-                    sectorDetailList[index].chunks.push([start,end]);
+                if (firstSector >= 0 && lastSector < this.numSectors) {
+                    // Iterate from the first to last calculated sectors.
+                    for (index = firstSector;index<=lastSector;index++) {
+                        sectorBoundary = this.sectorBoundaries[index];
+                        if (!sectorBoundary) {
+                            console.log('sector boundary problem', firstSector, lastSector, index, range, JSON.stringify(rangeList));
+                            continue;
+                        }
+                        // Calculate the start and end of this sector within the
+                        // range.
+                        start = sectorBoundary[0] > range[0] ? sectorBoundary[0] : range[0];
+                        end = sectorBoundary[1] < range[1] ? sectorBoundary[1] : range[1];
+                        // Fill the sector details we'll use to calculate scores.
+                        sectorDetailList[index].count += (end - start + 1);
+                        sectorDetailList[index].chunks.push([start,end]);
+                    }
+                }
+                else {
+                    console.log('invalid range', range, firstSector, lastSector, JSON.stringify(rangeList));
                 }
             });
             return Promise.resolve(sectorDetailList);
@@ -76,25 +85,46 @@ class FileSectorSelector {
         .then( sectorDetailList => {
             // Calculate a score based on how many packets from that part
             // this peer needs and the number of peers that are receiving
-            // packets from that part.
-            let score = 0;
-            let sectorChunks = [];
-            let sectorIndex = 0;
-            sectorDetailList.forEach( (sectorDetails, index) => {
-                const partScore = (this.chunksPerSector - this.sectorLoad[index].size) * sectorDetails.count;
-                if (partScore > score) {
-                    score = partScore;
-                    sectorChunks = sectorDetails.chunks;
-                    sectorIndex = index;
+            // packets from that part and then sort the chunks using those
+            // scores..
+            const selected = sectorDetailList
+            .map( (sectorDetails, index) => {
+                return {
+                    score: (this.chunksPerSector - this.sectorLoad[index].size) * sectorDetails.count,
+                    chunks: sectorDetails.chunks,
+                    index
+                };
+            })
+            // Descending order of score.
+            .sort((a,b) => {
+                // If they have the same score then randomly decide the order.
+                if (a.score === b.score) {
+                    return Math.random() - 0.5;
                 }
+                return b.score - a.score
             });
+            let result = null;
+            // If the first item in the list has a score then there are chunks
+            // to send.
+            if (selected[0].score) {
+                const sector = selected[0].index;
+                this.sectorLoad[sector].add(peerInfo);
+                let i=0;
+                let chunks = [];
+                // Add the chunks from any other sectors that have a non-zero
+                // score.
+                while(selected[i]?.score) {
+                    chunks.push(...selected[i++].chunks);
+                }
+                if (chunks.length) {
+                    result = { sector, chunks };
+                }
+            }
             if (currentSector !== undefined) {
                 this.sectorLoad[currentSector].delete(peerInfo);
             }
-            if (score) {
-                this.sectorLoad[sectorIndex].add(peerInfo);
-            }
-            return Promise.resolve({ sector: sectorIndex, chunks: sectorChunks });
+            // Nothing to send.
+            return Promise.resolve(result);
         });
     }
 }
