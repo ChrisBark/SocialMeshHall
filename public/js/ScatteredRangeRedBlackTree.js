@@ -83,8 +83,10 @@ class ScatteredRangeRedBlackTree {
                             start = remoteRange[1]+1;
                             remoteRange = peerRangeList.shift();
                         }
-                        // Add the remaining range based on the current range.
-                        resultList.push([start, currentRange[1]]);
+                        if (start <= currentRange[1]) {
+                            // Add the remaining range based on the current range.
+                            resultList.push([start, currentRange[1]]);
+                        }
                     }
                 }
                 // If we ran out of range objects from the peer list then push
