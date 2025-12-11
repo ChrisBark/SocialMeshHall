@@ -212,7 +212,7 @@ class FileHandle {
     }
 
     async handleDataPacket(peer, file, index, buffer) {
-        if (index > this.numChunks) {
+        if (index >= this.numChunks) {
             console.error('got index ' + index + ' with only ' + this.numChunks + ' chunks expected');
             return;
         }
