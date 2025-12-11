@@ -233,10 +233,11 @@ class FileHandle {
                 });
             }
             else {
+                // Copy the data into our file buffer.
+                this.bufferView.set(buffer, index * this.fileWorker.mtu);
+                // Now add the index to the range tree.
                 this.rangeTree.add(index)
                 .then( ignore => {
-                    // Copy the data into our file buffer.
-                    this.bufferView.set(buffer, index * this.fileWorker.mtu);
                     // If we have received everything then write the file.
                     // TODO - we can start writing the file before we receive the
                     // entire file.
