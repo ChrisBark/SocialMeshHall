@@ -120,7 +120,7 @@ class FileHandle {
                 this.rangeTree = new ScatteredRangeRedBlackTree(this.numChunks);
                 this.buffer = filedata??new ArrayBuffer(size);
                 this.bufferView = new Uint8Array(this.buffer);
-                this.chunkCount = (new Array(size)).fill(0);
+                this.chunkCount = (new Array(size)).fill(filedata?1:0);
                 this.fileSectorSelector = new FileSectorSelector(this.numChunks, this.numSectors);
                 // Work through any queued data packets that were waiting for the
                 // size to be set.
@@ -364,7 +364,7 @@ class FileHandle {
                     }
                     // Just in case we somehow end up with an index that is
                     // out of range.
-                    if (nextIndex < this.numChunks) {
+                    if (nextIndex < this.numChunks && this.chunkCount[nextIndex]) {
                         this.sendFilePacket(peer, nextIndex);
                     }
                 }
