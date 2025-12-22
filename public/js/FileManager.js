@@ -16,20 +16,20 @@
  */
 
 class FileManager {
-    constructor(fileInput, peerMgr, postMgr, options) {
+    constructor(peerMgr, postMgr, options) {
         this.peerMgr = peerMgr;
         this.postMgr = postMgr;
         this.options = options;
-        this.fileInput = fileInput;
+        postMgr.fileMgr = this;
         this.fileWorker = new Worker('../js/FileWorker.js');
         this.fileChannels = new Map();
     }
 
     async init() {
         return new Promise( (resolve, reject) => {
+            this.postMgr.addForm(this.postMgr.postsElem);
             this.peerMgr.registerPeerHandler('filemanager', this.handlePeerEvent.bind(this));
             this.peerMgr.registerChannelHandler(this.options.defaultChannel, this.handleFileChannel.bind(this));
-            this.fileInput.addEventListener('change', this.shareFiles.bind(this));
             this.fileWorker.addEventListener('error', this.handleFileWorkerError.bind(this));
             this.fileWorker.addEventListener('message', this.handleFileWorkerMessage.bind(this));
             this.fileWorker.addEventListener('messageerror', this.handleFileWorkerMessageError.bind(this));
@@ -55,38 +55,7 @@ class FileManager {
     }
 
     async loadSharedFile(filepath, data) {
-        const fileext = filepath.split('.').pop().toLowerCase();
-        switch(fileext) {
-            case 'png':
-            case 'bmp':
-            case 'gif':
-                return this.loadImage(filepath, fileext, data);
-            case 'jpeg':
-            case 'jpg':
-                return this.loadImage(filepath, 'jpeg', data);
-            case 'svg':
-                return this.loadImage(filepath, 'svg+xml', data);
-            case 'mp4':
-            case 'wemb':
-                return this.loadVideo(filepath, fileext, data);
-            case 'txt':
-                return this.loadComment(filepath, data);
-            default:
-                break;
-        }
-    }
-
-    async loadComment(filepath, data) {
-        const decoder = new TextDecoder();
-        this.postMgr.addComment(filepath, decoder.decode(data));
-    }
-
-    async loadImage(filepath, fileext, data) {
-        this.postMgr.addImage(filepath, fileext, data);
-    }
-
-    async loadVideo(filepath, fileext, data) {
-        this.postMgr.addVideo(filepath, fileext, data);
+        this.postMgr.addPost(filepath, data);
     }
 
     async handleFileWorkerMessage(ev) {
@@ -180,14 +149,8 @@ class FileManager {
         }
     }
 
-    async shareFiles() {
-        let now = new Date();
-        const year = now.getUTCFullYear();
-        const month = now.getUTCMonth();
-        const date = now.getUTCDate();
-        const ts = now.getTime();
-        const path = `/${year}/${month}/${date}/${ts}/`;
-        for (const file of this.fileInput.files) {
+    async shareFiles(path, files) {
+        for (const file of files) {
             let reader = new FileReader();
             let filename = path + file.name;
             reader.onload = ev => {
@@ -198,6 +161,13 @@ class FileManager {
             };
             reader.readAsArrayBuffer(file);
         }
+    }
+
+    async shareText(filename, comment) {
+        this.loadSharedFile(filename, comment)
+        .then( result => {
+            this.fileWorker.postMessage({ request: 'create', file: filename, data: comment });
+        });
     }
 }
 

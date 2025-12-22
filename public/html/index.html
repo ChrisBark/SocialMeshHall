@@ -3,7 +3,6 @@
     <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
-<input type="file" id="files" multiple />
 <div id="posts">
 </div>
 <div id="templates">
@@ -11,10 +10,6 @@
         <div name="contents">
         </div>
         <div name="comments">
-            <form name="comment">
-                <input type="text" name="comment">
-                <input type="submit">
-            </form>
         </div>
     </div>
     <div id="pictureTemplate">
@@ -26,10 +21,9 @@
     <div id="textTemplate">
         <p></p>
     </div>
-    <div id="commentTemplate">
-    </div>
     <div id="formTemplate">
         <form name="comment">
+            <input type="file" id="files" name="files" multiple />
             <input type="text" name="comment">
             <input type="submit">
         </form>
@@ -45,12 +39,10 @@ document.addEventListener("DOMContentLoaded", () => {
                                   document.getElementById('postTemplate'),
                                   document.getElementById('pictureTemplate'),
                                   document.getElementById('videoTemplate'),
-                                  document.getElementById('commentTemplate'),
                                   document.getElementById('textTemplate'),
                                   document.getElementById('formTemplate'));
-    let fileInput = document.getElementById('files');
     let peerMgr = new PeerManager(config.name, config.mainChannel, config.defaultChannel, config.options);
-    let fileMgr = new FileManager(fileInput, peerMgr, postMgr, config);
+    let fileMgr = new FileManager(peerMgr, postMgr, config);
     fileMgr.init()
     .then( ignore => {
         return peerMgr.connect(config.startURL);

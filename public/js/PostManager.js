@@ -20,77 +20,134 @@ class PostManager {
                 postTemplateElem,
                 pictureTemplateElem,
                 videoTemplateElem,
-                commentTemplateElem,
                 textTemplateElem,
                 formTemplateElem) {
         this.postsElem = postsElem;
         this.postTemplateElem = postTemplateElem;
         this.pictureTemplateElem = pictureTemplateElem;
         this.videoTemplateElem = videoTemplateElem;
-        this.commentTemplateElem = commentTemplateElem;
         this.textTemplateElem = textTemplateElem;
         this.formTemplateElem = formTemplateElem;
     }
 
-    getPost(postId) {
-        let postElem = document.getElementById(postId);
-        if (!postElem) {
+    #commentsSelector = '[name="comments"]';
+    #contentsSelector = '[name="contents"]';
+
+    addPost(filepath, data) {
+        let parts = filepath.split('/')
+        let parentElem = this.postsElem;
+        var elemId, post, newContent, contentsElem;
+        let postFilepath = parts.slice(0,4).join('/');
+        parts = parts.slice(4);
+        // Use the last directory as the id for this file.
+        while (parts.length > 1) {
+            elemId = parts.shift();
+            postFilepath += '/' + elemId;
+            post = this.#getPost(elemId, parentElem, postFilepath);
+            parentElem = post.querySelector(parts.length > 1 ? this.#commentsSelector : this.#contentsSelector);
+        }
+        const fileext = filepath.split('.').pop().toLowerCase();
+        var newContent;
+        switch(fileext) {
+            case 'png':
+            case 'bmp':
+            case 'gif':
+                newContent = this.createImage(fileext, data);
+                break;
+            case 'jpeg':
+            case 'jpg':
+                newContent = this.createImage('jpeg', data);
+                break;
+            case 'svg':
+                newContent = this.createImage('svg+xml', data);
+                break;
+            case 'mp4':
+            case 'wemb':
+                newContent = this.createVideo(fileext, data);
+                break;
+            case 'txt':
+        const decoder =
+                newContent = this.createText(filepath, (new TextDecoder()).decode(data));
+                break;
+            default:
+                break;
+        }
+        if (newContent) {
+            parentElem.appendChild(newContent);
+        }
+    }
+
+    #getPost(postId, parentElem, postFilepath) {
+        var postElem;
+        try {
+            postElem = parentElem.querySelector('#' + postId);
+        }
+        catch (err) {
             postElem = this.postTemplateElem.cloneNode(true);
             postElem.id = postId;
-            this.postsElem.appendChild(postElem);
+            let commentsElem = postElem.querySelector(this.#contentsSelector);
+            this.addForm(commentsElem, postFilepath);
+            parentElem.appendChild(postElem);
         }
         return postElem;
     }
 
-    addImage(filepath, fileext, data) {
-        let parts = filepath.split('/').slice(4);
-        let elemId = parts.shift();
-        let post = this.getPost(elemId);
-        let contentsElem = post.querySelector('[name="contents"]');
+    createImage(fileext, data) {
         let newImage = this.pictureTemplateElem.cloneNode(true);
         let imgElements = newImage.getElementsByTagName('img');
         for (const img of imgElements) {
             img.src = URL.createObjectURL(new Blob([data], { type: 'image/' + fileext }));
         }
-        contentsElem.appendChild(newImage);
+        return newImage;
     }
 
-    addVideo() {
-        let parts = filepath.split('/').slice(4);
-        let elemId = parts.shift();
-        let post = this.getPost(elemId);
-        let contentsElem = post.querySelector('[name="contents"]');
+    createVideo(fileext, data) {
         let newVideo = this.videoTemplateElem.cloneNode(true);
         let videoElements = newVideo.getElementsByTagName('video');
         for (const video of videoElements) {
             video.src = URL.createObjectURL(new Blob([data], { type: 'video/' + fileext }));
             video.load();
         }
-        contentsElem.appendChild(newImage);
+        return newVideo;
     }
 
-    addComment(filepath, text) {
+    createText(filepath, text) {
+        let newComment = this.textTemplateElem.cloneNode(true);
+        let textElements = newComment.getElementsByTagName('p');
+        for (const textElem of textElements) {
+            textElem.textContent = text;
+        }
+        return newComment;
     }
 
-    addForm() {
-    /*
-        let formElements = newImage.getElementsByTagName('form');
-        for (const form of formElements) {
-            const submitButton = form.querySelector('input[type="submit"]');
+    addForm(parentElem, postFilepath) {
+        let newForm = this.formTemplateElem.cloneNode(true);
+        let formElements = newForm.getElementsByTagName('form');
+        for (const formElem of formElements) {
+            const submitButton = formElem.querySelector('input[type="submit"]');
             submitButton.addEventListener('click', ev => {
                 ev.preventDefault();
-                const ts = Date.now();
-                const filename = filepath.slice(0, filepath.lastIndexOf('/') + 1) + ts + '/' + ts + '.txt';
-                const formData = new FormData(form);
+                const now = new Date();
+                const ts = now.getTime();
+                const formData = new FormData(formElem);
                 const encoder = new TextEncoder();
                 const comment = encoder.encode(formData.get('comment'));
-                this.loadSharedFile(filename, comment)
-                .then( result => {
-                    this.fileWorker.postMessage({ request: 'create', file: filename, data: comment });
-                });
+                const files = formData.get('files');
+                if (!postFilepath) {
+                    const year = now.getUTCFullYear();
+                    const month = now.getUTCMonth();
+                    const date = now.getUTCDate();
+                    postFilepath = `/${year}/${month}/${date}/${ts}/`;
+                }
+                if (comment.length) {
+                    this.fileMgr.shareText(postFilepath + '/' + ts + '.txt');
+                }
+                if (files) {
+                    this.fileMgr.shareFiles(postFilepath, Array.isArray(files) ? files : [ files ]);
+                }
             });
         }
-     */
+        parentElem.appendChild(newForm);
     }
 }
 
