@@ -29,7 +29,6 @@ class FileManager {
         return new Promise( (resolve, reject) => {
             this.postMgr.addForm(this.postMgr.postsElem);
             this.peerMgr.registerPeerHandler('filemanager', this.handlePeerEvent.bind(this));
-            this.peerMgr.registerChannelHandler(this.options.defaultChannel, this.handleFileChannel.bind(this));
             this.fileWorker.addEventListener('error', this.handleFileWorkerError.bind(this));
             this.fileWorker.addEventListener('message', this.handleFileWorkerMessage.bind(this));
             this.fileWorker.addEventListener('messageerror', this.handleFileWorkerMessageError.bind(this));

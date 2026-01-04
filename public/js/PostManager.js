@@ -30,6 +30,20 @@ class PostManager {
         this.formTemplateElem = formTemplateElem;
     }
 
+    start(options, peerMgr, fileMgr) {
+        this.options = options;
+        this.fileMgr = fileMgr;
+        this.peerMgr = peerMgr;
+        this.peerMgr.registerChannelHandler(this.options.defaultChannel, this.handleChannel.bind(this));
+        return fileMgr.init().then( ignore => {
+            return peerMgr.connect(window.location.origin);
+        });
+    }
+
+    async handleChannel(peer, channel) {
+        this.fileMgr.handleFileChannel(peer, channel);
+    }
+
     #commentsSelector = '[name="comments"]';
     #contentsSelector = '[name="contents"]';
 

@@ -43,10 +43,7 @@ document.addEventListener("DOMContentLoaded", () => {
                                   document.getElementById('formTemplate'));
     let peerMgr = new PeerManager(config.name, config.mainChannel, config.defaultChannel, config.options);
     let fileMgr = new FileManager(peerMgr, postMgr, config);
-    fileMgr.init()
-    .then( ignore => {
-        return peerMgr.connect(window.location.origin);
-    })
+    postMgr.start(config, peerMgr, fileMgr)
     .catch(err => {
         console.log('init error', err);
     });
