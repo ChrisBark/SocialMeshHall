@@ -45,7 +45,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let fileMgr = new FileManager(peerMgr, postMgr, config);
     fileMgr.init()
     .then( ignore => {
-        return peerMgr.connect(config.startURL);
+        return peerMgr.connect(window.location.origin);
     })
     .catch(err => {
         console.log('init error', err);

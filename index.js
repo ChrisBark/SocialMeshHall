@@ -48,8 +48,7 @@ app.get('/config.js', (req, res, next) => {
             dataChannelOptions: {
                 //ordered: false
             }
-        },
-        startURL: 'https://barkmesh.zapto.org:8080'
+        }
     };`);
 });
 
