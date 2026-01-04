@@ -66,28 +66,40 @@ class PostManager {
                 newContent = this.createVideo(fileext, data);
                 break;
             case 'txt':
-        const decoder =
                 newContent = this.createText(filepath, (new TextDecoder()).decode(data));
                 break;
             default:
                 break;
         }
         if (newContent) {
-            parentElem.appendChild(newContent);
+            this.#appendPost(parentElem, newContent);
         }
+    }
+
+    #appendPost(parentElem, newElem) {
+        var sibling;
+        for (const node of parentElem.childNodes) {
+            if (node.id > newElem.id || node.id === 'formTemplate') {
+                sibling = node;
+            }
+        }
+        parentElem.insertBefore(newElem, sibling);
     }
 
     #getPost(postId, parentElem, postFilepath) {
         var postElem;
         try {
-            postElem = parentElem.querySelector('#' + postId);
+            postElem = parentElem.querySelector('#P' + postId);
         }
         catch (err) {
+            console.error(err);
+        }
+        if (!postElem) {
             postElem = this.postTemplateElem.cloneNode(true);
-            postElem.id = postId;
+            postElem.id = 'P' + postId;
             let commentsElem = postElem.querySelector(this.#contentsSelector);
             this.addForm(commentsElem, postFilepath);
-            parentElem.appendChild(postElem);
+            this.#appendPost(parentElem, postElem);
         }
         return postElem;
     }
@@ -132,18 +144,32 @@ class PostManager {
                 const formData = new FormData(formElem);
                 const encoder = new TextEncoder();
                 const comment = encoder.encode(formData.get('comment'));
-                const files = formData.get('files');
+                let files = formData.get('files');
+                if (!Array.isArray(files)) {
+                    if (files.name) {
+                        files = [ files ];
+                    }
+                    else {
+                        files = null;
+                    }
+                }
                 if (!postFilepath) {
                     const year = now.getUTCFullYear();
                     const month = now.getUTCMonth();
                     const date = now.getUTCDate();
                     postFilepath = `/${year}/${month}/${date}/${ts}/`;
                 }
+                else {
+                    if (!postFilepath.endsWith('/')) {
+                        postFilepath += '/';
+                    }
+                    postFilepath += (ts + '/');
+                }
                 if (comment.length) {
-                    this.fileMgr.shareText(postFilepath + '/' + ts + '.txt');
+                    this.fileMgr.shareText(postFilepath + ts + '.txt', comment);
                 }
                 if (files) {
-                    this.fileMgr.shareFiles(postFilepath, Array.isArray(files) ? files : [ files ]);
+                    this.fileMgr.shareFiles(postFilepath, files);
                 }
             });
         }
