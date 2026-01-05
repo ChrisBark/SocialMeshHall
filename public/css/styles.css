@@ -20,3 +20,9 @@ video {
 #templates {
     display: none;
 }
+.div-button:hover {
+  background-color: red;
+  color: white;
+  cursor: pointer;
+
+}

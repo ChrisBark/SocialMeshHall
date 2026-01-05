@@ -16,24 +16,29 @@
  */
 
 class PostManager {
-    constructor(postsElem,
+    constructor(liveElem,
+                postsElem,
                 postTemplateElem,
                 pictureTemplateElem,
                 videoTemplateElem,
+                audioTemplateElem,
                 textTemplateElem,
                 formTemplateElem) {
+        this.liveElem = liveElem;
         this.postsElem = postsElem;
         this.postTemplateElem = postTemplateElem;
         this.pictureTemplateElem = pictureTemplateElem;
         this.videoTemplateElem = videoTemplateElem;
+        this.audioTemplateElem = audioTemplateElem;
         this.textTemplateElem = textTemplateElem;
         this.formTemplateElem = formTemplateElem;
     }
 
-    start(options, peerMgr, fileMgr) {
+    start(options, peerMgr, fileMgr, broadcastMgr) {
         this.options = options;
         this.fileMgr = fileMgr;
         this.peerMgr = peerMgr;
+        this.broadcastMgr = broadcastMgr;
         this.peerMgr.registerChannelHandler(this.options.defaultChannel, this.handleChannel.bind(this));
         return fileMgr.init().then( ignore => {
             return peerMgr.connect(window.location.origin);
@@ -41,7 +46,12 @@ class PostManager {
     }
 
     async handleChannel(peer, channel) {
-        this.fileMgr.handleFileChannel(peer, channel);
+        if (channel.label = 'sdp') {
+            this.broadcastMgr.handleChannel(peer, channel);
+        }
+        else {
+            this.fileMgr.handleFileChannel(peer, channel);
+        }
     }
 
     #commentsSelector = '[name="comments"]';

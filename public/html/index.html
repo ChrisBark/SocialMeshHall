@@ -3,51 +3,63 @@
     <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
-<div id="posts">
-</div>
-<div id="templates">
-    <div id="postTemplate">
-        <div name="contents">
-        </div>
-        <div name="comments">
+    <div id="live">
+        <div id="golive" class="div-button">
+            <p>Go Live!</p>
         </div>
     </div>
-    <div id="pictureTemplate">
-        <img>
+    <div id="posts">
     </div>
-    <div id="videoTemplate">
-        <video>
+    <div id="templates">
+        <div id="postTemplate">
+            <div name="contents">
+            </div>
+            <div name="comments">
+            </div>
+        </div>
+        <div id="pictureTemplate">
+            <img>
+        </div>
+        <div id="videoTemplate">
+            <video>
+        </div>
+        <div id="audioTemplate">
+            <audio>
+        </div>
+        <div id="textTemplate">
+            <p></p>
+        </div>
+        <div id="formTemplate">
+            <form name="comment">
+                <input type="file" id="files" name="files" multiple />
+                <input type="text" name="comment">
+                <input type="submit">
+            </form>
+        </div>
     </div>
-    <div id="textTemplate">
-        <p></p>
-    </div>
-    <div id="formTemplate">
-        <form name="comment">
-            <input type="file" id="files" name="files" multiple />
-            <input type="text" name="comment">
-            <input type="submit">
-        </form>
-    </div>
-</div>
-<script src="/config.js"></script>
-<script src="/js/PeerManager.js"></script>
-<script src="/js/FileManager.js"></script>
-<script src="/js/PostManager.js"></script>
-<script type='application/javascript'>
-document.addEventListener("DOMContentLoaded", () => {
-    let postMgr = new PostManager(document.getElementById('posts'),
-                                  document.getElementById('postTemplate'),
-                                  document.getElementById('pictureTemplate'),
-                                  document.getElementById('videoTemplate'),
-                                  document.getElementById('textTemplate'),
-                                  document.getElementById('formTemplate'));
-    let peerMgr = new PeerManager(config.name, config.mainChannel, config.defaultChannel, config.options);
-    let fileMgr = new FileManager(peerMgr, postMgr, config);
-    postMgr.start(config, peerMgr, fileMgr)
-    .catch(err => {
-        console.log('init error', err);
+    <script src="/config.js"></script>
+    <script src="/js/PeerManager.js"></script>
+    <script src="/js/FileManager.js"></script>
+    <script src="/js/PostManager.js"></script>
+    <script src="/js/BroadcastManager.js"></script>
+    <script type='application/javascript'>
+    document.addEventListener("DOMContentLoaded", () => {
+        let postMgr = new PostManager(document.getElementById('live'),
+                                      document.getElementById('posts'),
+                                      document.getElementById('postTemplate'),
+                                      document.getElementById('pictureTemplate'),
+                                      document.getElementById('videoTemplate'),
+                                      document.getElementById('audioTemplate'),
+                                      document.getElementById('textTemplate'),
+                                      document.getElementById('formTemplate'));
+        let peerMgr = new PeerManager(config.name, config.mainChannel, config.defaultChannel, config.options);
+        let fileMgr = new FileManager(peerMgr, postMgr, config);
+        let broadcastManager = new BroadcastManager(postMgr, document.getElementById('golive'));
+        postMgr.start(config, peerMgr, fileMgr, broadcastManager)
+        .catch(err => {
+            console.log('init error', err);
+        });
     });
-});
-</script>
+    </script>
 </body>
 </html>
