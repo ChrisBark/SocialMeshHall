@@ -16,10 +16,19 @@
  */
 
 class BroadcastStream {
-    constructor(peerCfg, peer) {
+    constructor(peerCfg, peer, channel) {
         this.peerConnection = new RTCPeerConnection(peerCfg);
         this.peer = peer;
+        this.channel = channel;
         this.peerConnection.addEventListener('track', this.addTrack.bind(this));
+        this.peerConnection.addEventListener('icecandidate', this.sendIceCandidate.bind(this));
+    }
+
+    addIceCandidate(candidate) {
+        this.peerConnection.addIceCandidate(candidate)
+        .catch( err => {
+            console.error('Error adding ice candidate', err);
+        });
     }
 
     addTrack(ev) {
@@ -52,7 +61,7 @@ class BroadcastStream {
         }
     }
 
-    async createAnswer(channel, offer) {
+    async createAnswer(offer) {
         this.peerConnection.setRemoteDescription(offer)
         .then( ignore => {
             return this.peerConnection.createAnswer();
@@ -60,23 +69,27 @@ class BroadcastStream {
         .then( answer => {
             this.peerConnection.setLocalDescription(answer)
             .then( ignore => {
-                channel.send(JSON.stringify({peer: this.peer, offer: answer}));
+                this.channel.send(JSON.stringify({peer: this.peer, offer: answer}));
             });
         });
     }
 
-    async createOffer(channel) {
+    async createOffer() {
         this.peerConnection.createOffer()
         .then( offer => {
             this.peerConnection.setLocalDescription(offer)
             .then( ignore => {
-                channel.send(JSON.stringify({peer: this.peer, offer}));
+                this.channel.send(JSON.stringify({peer: this.peer, offer}));
             });
         });
     }
 
     async loadedMetaData(ev) {
         console.log('metadata', ev);
+    }
+
+    async sendIceCandidate(ev) {
+        this.channel.send(JSON.stringify({peer: this.peer, candidate: ev.candidate}));
     }
 
     async setAnswer(answer) {
@@ -172,21 +185,26 @@ class BroadcastManager {
         channel.onmessage = (msgEv) => {
             const msg = JSON.parse(msgEv.data);
             if (peerInfo.streams.has(msg.peer)) {
-                peerInfo.streams.get(msg.peer).setAnswer(new RTCSessionDescription(msg.offer));
+                if (msg.offer) {
+                    peerInfo.streams.get(msg.peer).setAnswer(new RTCSessionDescription(msg.offer));
+                }
+                else if (msg.candidate) {
+                    peerInfo.streams.get(msg.peer).addIceCandidate(msg.candidate);
+                }
             }
             else {
-                const broadcastStream = new BroadcastStream(this.peerCfg, peer);
+                const broadcastStream = new BroadcastStream(this.peerCfg, peer, channel);
                 peerInfo.streams.set(peer, broadcastStream);
-                broadcastStream.createAnswer(channel, new RTCSessionDescription(msg.offer));
+                broadcastStream.createAnswer(new RTCSessionDescription(msg.offer));
                 broadcastStream.addVideoElement(this.postMgr.addLivePost('L' + peer));
             }
         };
         // Create the peer connection for this channel.
         if (this.stream) {
-            const broadcastStream = new BroadcastStream(this.peerCfg, this.peerMgr.name);
+            const broadcastStream = new BroadcastStream(this.peerCfg, this.peerMgr.name, channel);
             peerInfo.streams.set(this.peerMgr.name, broadcastStream);
             broadcastStream.addTracksToPeer(this.stream);
-            broadcastStream.createOffer(channel);
+            broadcastStream.createOffer();
         }
     }
 
