@@ -20,8 +20,9 @@ class BroadcastStream {
         this.peerConnection = new RTCPeerConnection(peerCfg);
         this.peer = peer;
         this.channel = channel;
-        this.peerConnection.addEventListener('track', this.addTrack.bind(this));
         this.peerConnection.addEventListener('icecandidate', this.sendIceCandidate.bind(this));
+        this.peerConnection.addEventListener('connectionstatechange', this.connectionStateChange.bind(this));
+        this.peerConnection.addEventListener('track', this.addTrack.bind(this));
     }
 
     addIceCandidate(candidate) {
@@ -32,6 +33,9 @@ class BroadcastStream {
     }
 
     addTrack(ev) {
+        ev.track.addEventListener('ended', ev => {
+            this.close();
+        });
         if (this.videoElem) {
             let videoElements = this.videoElem.getElementsByTagName('video');
             for (const video of videoElements) {
@@ -57,6 +61,19 @@ class BroadcastStream {
 
     async close() {
         if (this.peerConnection.connectionState !== 'closed') {
+            this.peerConnection.close();
+        }
+        if (this.videoElem?.parentNode) {
+            this.videoElem.parentNode.removeChild(this.videoElem);
+        }
+    }
+
+    async connectionStateChange(ev) {
+        if (this.peerConnection.connectionState === 'disconnected') {
+            if (this.videoElem?.parentNode) {
+                this.videoElem.parentNode.removeChild(this.videoElem);
+                delete this.videoElem;
+            }
             this.peerConnection.close();
         }
     }
@@ -85,7 +102,6 @@ class BroadcastStream {
     }
 
     async loadedMetaData(ev) {
-        console.log('metadata', ev);
     }
 
     async sendIceCandidate(ev) {
@@ -145,6 +161,9 @@ class BroadcastManager {
         return this.createUserMedia(audio, video)
         .then( stream => {
             this.stream = stream;
+            this.goLiveButtonElem.classList.add('hidden');
+            //this.goLiveAudioButtonElem.classList.add('hidden');
+            this.stopButtonElem.classList.remove('hidden');
             // Open data channels for SDP negotiation.
             this.peers.forEach( (peerInfo, peer) => {
                 if (!peerInfo.channel) {
@@ -160,18 +179,35 @@ class BroadcastManager {
         });
     }
 
+    async broadcastStop() {
+        this.stream.getTracks().forEach( track => {
+            track.stop();
+        });
+        this.videoElem.parentNode.removeChild(this.videoElem);
+        delete this.videoElem;
+        this.peers.forEach( (peerInfo, peer) => {
+            if (peerInfo.streams.has(this.peerMgr.name)) {
+                peerInfo.streams.get(this.peerMgr.name).close();
+                peerInfo.streams.delete(this.peerMgr.name);
+            }
+        });
+    }
+
     async goLive() {
-        this.goLiveButtonElem.classList.add('hidden');
-        this.goLiveAudioButtonElem.classList.add('hidden');
-        this.stopButtonElem.classList.remove('hidden');
-        this.broadcastLive(true, true);
+        this.broadcastLive(true, true).catch( err => {
+            if (err.name !== 'NotAllowedError') {
+                console.error('broadcast error', err);
+            }
+        });
     }
 
     async goLiveAudio() {
+    /*
         this.goLiveButtonElem.classList.add('hidden');
         this.goLiveAudioButtonElem.classList.add('hidden');
         this.stopButtonElem.classList.remove('hidden');
         this.broadcastLive(true, false);
+     */
     }
 
     // Called for every new SDP channel created.
@@ -250,6 +286,10 @@ class BroadcastManager {
     }
 
     async stop() {
+        this.broadcastStop();
+        this.goLiveButtonElem.classList.remove('hidden');
+        //this.goLiveAudioButtonElem.classList.remove('hidden');
+        this.stopButtonElem.classList.add('hidden');
     }
 }
 

@@ -20,11 +20,14 @@ video {
 #templates {
     display: none;
 }
+.div-button {
+    max-width: 10%;
+    max-height: 10%;
+}
 .div-button:hover {
   background-color: red;
   color: white;
   cursor: pointer;
-
 }
 .hidden {
     display: none;
