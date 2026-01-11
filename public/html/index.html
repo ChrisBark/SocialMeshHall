@@ -7,6 +7,12 @@
         <div id="golive" class="div-button">
             <p>Go Live!</p>
         </div>
+        <div id="goliveaudio" class="div-button">
+            <p>Go Live (audio only)!</p>
+        </div>
+        <div id="stop" class="div-button hidden">
+            <p>Stop!</p>
+        </div>
     </div>
     <div id="posts">
     </div>
@@ -21,7 +27,7 @@
             <img>
         </div>
         <div id="videoTemplate">
-            <video>
+            <video autoplay playsinline muted>
         </div>
         <div id="audioTemplate">
             <audio>
@@ -54,7 +60,12 @@
                                       document.getElementById('formTemplate'));
         let peerMgr = new PeerManager(config.name, config.mainChannel, config.defaultChannel, config.options);
         let fileMgr = new FileManager(peerMgr, postMgr, config);
-        let broadcastManager = new BroadcastManager(postMgr, document.getElementById('golive'));
+        let broadcastManager = new BroadcastManager(postMgr,
+                                                    peerMgr,
+                                                    document.getElementById('golive'),
+                                                    document.getElementById('goliveaudio'),
+                                                    document.getElementById('stop'),
+                                                    config.livePeerConnectionOptions);
         postMgr.start(config, peerMgr, fileMgr, broadcastManager)
         .catch(err => {
             console.log('init error', err);

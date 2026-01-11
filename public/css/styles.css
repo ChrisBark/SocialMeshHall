@@ -14,8 +14,8 @@ video {
     padding: 10px;
     display: block;
     margin: 10px auto;
-    max-height: 100%;
-    max-width: 100%;
+    max-height: 80%;
+    max-width: 80%;
 }
 #templates {
     display: none;
@@ -25,4 +25,7 @@ video {
   color: white;
   cursor: pointer;
 
+}
+.hidden {
+    display: none;
 }

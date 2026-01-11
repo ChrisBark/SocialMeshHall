@@ -25,6 +25,7 @@ app.get('/config.js', (req, res, next) => {
     res.type('.js');    
     res.send(`const config = {
         defaultChannel: 'default',
+        livePeerConnectionOptions: {},
         mainChannel: 'operator',
         name: '${name}',
         options: {

@@ -46,12 +46,20 @@ class PostManager {
     }
 
     async handleChannel(peer, channel) {
-        if (channel.label = 'sdp') {
+        if (channel.label === 'sdp') {
             this.broadcastMgr.handleChannel(peer, channel);
         }
         else {
             this.fileMgr.handleFileChannel(peer, channel);
         }
+    }
+
+    addLivePost(id) {
+        let newVideo = this.videoTemplateElem.cloneNode(true);
+        newVideo.id = id;
+        let videoElements = newVideo.getElementsByTagName('video');
+        this.liveElem.appendChild(newVideo);
+        return newVideo;
     }
 
     #commentsSelector = '[name="comments"]';
@@ -198,6 +206,11 @@ class PostManager {
             });
         }
         parentElem.appendChild(newForm);
+    }
+
+    removePost(id) {
+        let elem = document.getElementById(id);
+        elem.parentNode.removeChild(elem);
     }
 }
 
