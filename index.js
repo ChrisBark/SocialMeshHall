@@ -17,6 +17,10 @@ let peers = new PeerManager();
 app.use(express.static('public'));
 app.use(express.json());
 
+app.get('/', (req, res, next) => {
+    res.redirect('/html/index.html');
+});
+
 app.get('/config.js', (req, res, next) => {
     let name = randomInt(99999999).toString();
     while(peers.mappedPeers.has(name)) {
