@@ -16,10 +16,19 @@
  */
 
 class BroadcastStream {
-    constructor(peerCfg, peer, channel) {
+    constructor(peerCfg, peer, channel, audio, video, isRx) {
         this.peerConnection = new RTCPeerConnection(peerCfg);
         this.peer = peer;
         this.channel = channel;
+        this.isRx = isRx;
+        this.trackTargets = new Map();
+        if (audio) {
+            this.trackTargets.set('audio', false);
+        }
+        if (video) {
+            this.trackTargets.set('video', false);
+        }
+        this.retransmitPeers = [];
         this.peerConnection.addEventListener('icecandidate', this.sendIceCandidate.bind(this));
         this.peerConnection.addEventListener('connectionstatechange', this.connectionStateChange.bind(this));
         this.peerConnection.addEventListener('track', this.addTrack.bind(this));
@@ -33,6 +42,7 @@ class BroadcastStream {
     }
 
     addTrack(ev) {
+        this.trackTargets.set(ev.track.kind, true);
         ev.track.addEventListener('ended', ev => {
             this.close();
         });
@@ -47,7 +57,9 @@ class BroadcastStream {
     }
 
     addTracksToPeer(stream) {
+        this.stream = stream;
         stream.getTracks().forEach(track => {
+            this.trackTargets.set(track.kind, true);
             this.peerConnection.addTrack(track, stream);
         });
     }
@@ -86,7 +98,7 @@ class BroadcastStream {
         .then( answer => {
             this.peerConnection.setLocalDescription(answer)
             .then( ignore => {
-                this.channel.send(JSON.stringify({peer: this.peer, offer: answer}));
+                this.channel.send(JSON.stringify({type: 'answer', peer: this.peer, offer: answer}));
             });
         });
     }
@@ -96,16 +108,24 @@ class BroadcastStream {
         .then( offer => {
             this.peerConnection.setLocalDescription(offer)
             .then( ignore => {
-                this.channel.send(JSON.stringify({peer: this.peer, offer}));
+                this.channel.send(JSON.stringify({type: 'offer', peer: this.peer, offer}));
             });
         });
+    }
+
+    fullStreamAvailable() {
+        let complete = true;
+        for (const value of this.trackTargets.values()) {
+            complete &&= value;
+        }
+        return complete;
     }
 
     async loadedMetaData(ev) {
     }
 
     async sendIceCandidate(ev) {
-        this.channel.send(JSON.stringify({peer: this.peer, candidate: ev.candidate}));
+        this.channel.send(JSON.stringify({type: 'ice', peer: this.peer, candidate: ev.candidate, isRx: !this.isRx}));
     }
 
     async setAnswer(answer) {
@@ -126,31 +146,14 @@ class BroadcastManager {
         this.goLiveAudioButtonElem = goLiveAudioButtonElem;
         this.stopButtonElem = stopButtonElem;
         this.peerCfg = peerCfg;
+        // We have direct connections to peers.
         this.peers = new Map();
+        // WE could have peer streams coming indirectly through a third party
+        this.peerRxStreams = new Map();
         goLiveButtonElem.addEventListener('click', this.goLive.bind(this));
         goLiveAudioButtonElem.addEventListener('click', this.goLiveAudio.bind(this));
         stopButtonElem.addEventListener('click', this.stop.bind(this));
         this.peerMgr.registerPeerHandler('broadcastmanager', this.handlePeerEvent.bind(this));
-    }
-
-    async createSDPChannel(peer) {
-        this.peerMgr.createChannel('sdp', peer);
-    }
-
-    async createUserMedia(audio, video) {
-        return navigator.mediaDevices.getUserMedia({ audio, video })
-        .then( stream => {
-            if ((audio && !this.audioInputsLoaded) || (video && !this.videoInputsLoaded)) {
-                if (audio) {
-                    this.audioInputsLoaded = true;
-                }
-                if (video) {
-                    this.videoInputsLoaded = true;
-                }
-                this.loadInputDevices();
-            }
-            return Promise.resolve(stream);
-        });
     }
 
     async broadcastLive(audio, video) {
@@ -161,6 +164,8 @@ class BroadcastManager {
         return this.createUserMedia(audio, video)
         .then( stream => {
             this.stream = stream;
+            this.audio = audio;
+            this.video = video;
             this.goLiveButtonElem.classList.add('hidden');
             //this.goLiveAudioButtonElem.classList.add('hidden');
             this.stopButtonElem.classList.remove('hidden');
@@ -186,10 +191,69 @@ class BroadcastManager {
         this.videoElem.parentNode.removeChild(this.videoElem);
         delete this.videoElem;
         this.peers.forEach( (peerInfo, peer) => {
-            if (peerInfo.streams.has(this.peerMgr.name)) {
-                peerInfo.streams.get(this.peerMgr.name).close();
-                peerInfo.streams.delete(this.peerMgr.name);
+            if (peerInfo.txStreams.has(this.peerMgr.name)) {
+                const broadcastStream = peerInfo.txStreams.get(this.peerMgr.name);
+                broadcastStream?.channel?.send(JSON.stringify({type: 'close', peer: this.peerMgr.name}));
+                broadcastStream?.close();
+                peerInfo.txStreams.delete(this.peerMgr.name);
             }
+        });
+    }
+
+    async closeStreams(peer) {
+        this.peers.forEach( peerInfo => {
+            if (peerInfo.txStreams.has(peer)) {
+                const broadcastStream = peerInfo.txStreams.get(peer);
+                peerInfo.txStreams.delete(peer);
+                broadcastStream?.channel?.send(JSON.stringify({type: 'close', peer}));
+                broadcastStream?.close();
+            }
+        });
+        this.peerRxStreams.get(peer)?.close();
+        this.peerRxStreams.delete(peer);
+    }
+
+    async createBroadcastStream(peer, targetPeer, channel) {
+        var broadcastStream;
+        let peerTargetInfo = this.peers.get(targetPeer);
+        // Is this our stream?
+        if (peer === this.peerMgr.name) {
+            broadcastStream = new BroadcastStream(this.peerCfg, peer, channel, this.audio, this.video, false);
+            broadcastStream.addTracksToPeer(this.stream);
+        }
+        else {
+            // Make sure we have a broadcast stream to retransmit.
+            const rxBroadcastStream = this.peerRxStreams.get(peer);
+            if (rxBroadcastStream) {
+                broadcastStream = new BroadcastStream(this.peerCfg, peer, channel, rxBroadcastStream.audio, rxBroadcastStream.video, false);
+                broadcastStream.addTracksToPeer(rxBroadcastStream.stream);
+                rxBroadcastStream.retransmitPeers.push(targetPeer);
+            }
+        }
+        // Just in case we didn't crate the broadcast stream above.
+        if (broadcastStream) {
+            peerTargetInfo.txStreams.set(peer, broadcastStream);
+            broadcastStream.createOffer();
+        }
+    }
+
+    async createSDPChannel(peer) {
+        this.peerMgr.createChannel('sdp', peer);
+    }
+
+    async createUserMedia(audio, video) {
+        return navigator.mediaDevices.getUserMedia({ audio, video })
+        .then( stream => {
+            if ((audio && !this.audioInputsLoaded) || (video && !this.videoInputsLoaded)) {
+                if (audio) {
+                    this.audioInputsLoaded = true;
+                }
+                if (video) {
+                    this.videoInputsLoaded = true;
+                }
+                this.loadInputDevices();
+            }
+            return Promise.resolve(stream);
         });
     }
 
@@ -220,33 +284,44 @@ class BroadcastManager {
         // Handle remote offers.
         channel.onmessage = (msgEv) => {
             const msg = JSON.parse(msgEv.data);
-            if (peerInfo.streams.has(msg.peer)) {
-                if (msg.offer) {
-                    peerInfo.streams.get(msg.peer).setAnswer(new RTCSessionDescription(msg.offer));
-                }
-                else if (msg.candidate) {
-                    peerInfo.streams.get(msg.peer).addIceCandidate(msg.candidate);
-                }
-            }
-            else {
-                const broadcastStream = new BroadcastStream(this.peerCfg, peer, channel);
-                peerInfo.streams.set(peer, broadcastStream);
-                broadcastStream.createAnswer(new RTCSessionDescription(msg.offer));
-                broadcastStream.addVideoElement(this.postMgr.addLivePost('L' + peer));
+            switch (msg.type) {
+                case 'answer':
+                    peerInfo.txStreams.get(msg.peer)?.setAnswer(new RTCSessionDescription(msg.offer));
+                    break;
+                case 'connect':
+                    this.createBroadcastStream(msg.peer, peer, channel);
+                    break;
+                case 'close':
+                    this.closeStreams(msg.peer);
+                    break;
+                case 'ice':
+                    (msg.isRx?this.peerRxStreams.get(msg.peer):peerInfo.txStreams.get(msg.peer))?.addIceCandidate(msg.candidate);
+                    break;
+                case 'offer':
+                    this.peerRxStreams.get(msg.peer)?.createAnswer(new RTCSessionDescription(msg.offer));
+                    break;
+                case 'peerlist':
+                    // Determine which peers aren't in our collection and
+                    // create a BroadcastStream object for each new peer
+                    // using the channel we were told about the peer over.
+                    (msg.peerlist??[]).filter(peerDetails => !this.peerRxStreams.has(peerDetails.peer)).forEach( peerDetails => {
+                        const peerBroadcastStream = new BroadcastStream(this.peerCfg, peerDetails.peer, channel, peerDetails.audio, peerDetails.video, true);
+                        this.peerRxStreams.set(peerDetails.peer, peerBroadcastStream);
+                        // Add a video element to the DOM.
+                        peerBroadcastStream.addVideoElement(this.postMgr.addLivePost('L' + peerDetails.peer));
+                        channel.send(JSON.stringify({type: 'connect', peer: peerDetails.peer}));
+                    });
+                    break;
+                default:
+                    break;
             }
         };
-        // Create the peer connection for this channel.
-        if (this.stream) {
-            const broadcastStream = new BroadcastStream(this.peerCfg, this.peerMgr.name, channel);
-            peerInfo.streams.set(this.peerMgr.name, broadcastStream);
-            broadcastStream.addTracksToPeer(this.stream);
-            broadcastStream.createOffer();
-        }
+        this.sendPeerList(channel);
     }
 
     async handlePeerEvent(type, peer) {
         if (type === 'add') {
-            this.peers.set(peer, {streams: new Map()});
+            this.peers.set(peer, {txStreams: new Map()});
             // If we're already live then we'll want to create the SDP
             // channel for this new peer.
             if (this.stream) {
@@ -256,13 +331,9 @@ class BroadcastManager {
         else if (type === 'remove') {
             const peerInfo = this.peers.get(peer);
             this.peers.delete(peer);
-            if (peerInfo.channel && peerInfo.channel.readyState !== 'closed') {
+            if (peerInfo?.channel && peerInfo.channel.readyState !== 'closed') {
                 peerInfo.channel.close();
-                delete peerInfo.channel;
             }
-            peerInfo.streams.forEach( broadcastStream => {
-                broadcastStream.close();
-            });
             // TODO - remove HTML elements.
         }
     }
@@ -283,6 +354,19 @@ class BroadcastManager {
             }
         });
      */
+    }
+
+    async sendPeerList(channel) {
+        let peerlist = [];
+        if (this.stream) {
+            peerlist.push({peer:this.peerMgr.name, audio: !!this.audio, video: !!this.video});
+        }
+        this.peerRxStreams.forEach( (broadcastStream, peer) => {
+            peerlist.push({peer, audio: broadcastStream.audio, video: broadcastStream.video});
+        });
+        if (peerlist.length) {
+            channel.send(JSON.stringify({type: 'peerlist', peerlist}));
+        }
     }
 
     async stop() {
