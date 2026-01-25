@@ -16,8 +16,10 @@
  */
 
 class BroadcastStream {
-    constructor(peerCfg, peer, channel, audio, video, isRx) {
+    constructor(peerCfg, broadcastMgr, peer, channel, audio, video, isRx) {
         this.peerConnection = new RTCPeerConnection(peerCfg);
+        this.iceCandidates = [];
+        this.broadcastMgr = broadcastMgr;
         this.peer = peer;
         this.channel = channel;
         this.isRx = isRx;
@@ -35,10 +37,15 @@ class BroadcastStream {
     }
 
     addIceCandidate(candidate) {
-        this.peerConnection.addIceCandidate(candidate)
-        .catch( err => {
-            console.error('Error adding ice candidate', err);
-        });
+        if (this.peerConnection.currentRemoteDescription) {
+            this.peerConnection.addIceCandidate(candidate)
+            .catch( err => {
+                console.error('Error adding ice candidate', err);
+            });
+        }
+        else {
+            this.iceCandidates.push(candidate);
+        }
     }
 
     addTrack(ev) {
@@ -62,6 +69,9 @@ class BroadcastStream {
             this.trackTargets.set(track.kind, true);
             this.peerConnection.addTrack(track, stream);
         });
+        if (this.fullStreamAvailable()) {
+            this.broadcastMgr.sendPeerList(this.channel);
+        }
     }
 
     addVideoElement(videoElem) {
@@ -92,7 +102,10 @@ class BroadcastStream {
 
     async createAnswer(offer) {
         this.peerConnection.setRemoteDescription(offer)
-        .then( ignore => {
+        .then( async ignore => {
+            while (this.iceCandidates.length) {
+                await this.peerConnection.addIceCandidate(this.iceCandidates.shift());
+            }
             return this.peerConnection.createAnswer();
         })
         .then( answer => {
@@ -129,7 +142,10 @@ class BroadcastStream {
     }
 
     async setAnswer(answer) {
-        this.peerConnection.setRemoteDescription(answer);
+        await this.peerConnection.setRemoteDescription(answer);
+        while (this.iceCandidates.length) {
+            await this.peerConnection.addIceCandidate(this.iceCandidates.shift());
+        }
     }
 }
 
@@ -218,14 +234,14 @@ class BroadcastManager {
         let peerTargetInfo = this.peers.get(targetPeer);
         // Is this our stream?
         if (peer === this.peerMgr.name) {
-            broadcastStream = new BroadcastStream(this.peerCfg, peer, channel, this.audio, this.video, false);
+            broadcastStream = new BroadcastStream(this.peerCfg, this, peer, channel, this.audio, this.video, false);
             broadcastStream.addTracksToPeer(this.stream);
         }
         else {
             // Make sure we have a broadcast stream to retransmit.
             const rxBroadcastStream = this.peerRxStreams.get(peer);
             if (rxBroadcastStream) {
-                broadcastStream = new BroadcastStream(this.peerCfg, peer, channel, rxBroadcastStream.audio, rxBroadcastStream.video, false);
+                broadcastStream = new BroadcastStream(this.peerCfg, this, peer, channel, rxBroadcastStream.audio, rxBroadcastStream.video, false);
                 broadcastStream.addTracksToPeer(rxBroadcastStream.stream);
                 rxBroadcastStream.retransmitPeers.push(targetPeer);
             }
@@ -305,7 +321,7 @@ class BroadcastManager {
                     // create a BroadcastStream object for each new peer
                     // using the channel we were told about the peer over.
                     (msg.peerlist??[]).filter(peerDetails => !this.peerRxStreams.has(peerDetails.peer)).forEach( peerDetails => {
-                        const peerBroadcastStream = new BroadcastStream(this.peerCfg, peerDetails.peer, channel, peerDetails.audio, peerDetails.video, true);
+                        const peerBroadcastStream = new BroadcastStream(this.peerCfg, this, peerDetails.peer, channel, peerDetails.audio, peerDetails.video, true);
                         this.peerRxStreams.set(peerDetails.peer, peerBroadcastStream);
                         // Add a video element to the DOM.
                         peerBroadcastStream.addVideoElement(this.postMgr.addLivePost('L' + peerDetails.peer));
@@ -362,7 +378,9 @@ class BroadcastManager {
             peerlist.push({peer:this.peerMgr.name, audio: !!this.audio, video: !!this.video});
         }
         this.peerRxStreams.forEach( (broadcastStream, peer) => {
-            peerlist.push({peer, audio: broadcastStream.audio, video: broadcastStream.video});
+            if (broadcastStream.fullStreamAvailable()) {
+                peerlist.push({peer, audio: broadcastStream.audio, video: broadcastStream.video});
+            }
         });
         if (peerlist.length) {
             channel.send(JSON.stringify({type: 'peerlist', peerlist}));
