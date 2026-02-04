@@ -166,10 +166,12 @@ class BroadcastManager {
         this.peers = new Map();
         // WE could have peer streams coming indirectly through a third party
         this.peerRxStreams = new Map();
+        this.messageQueue = [];
         goLiveButtonElem.addEventListener('click', this.goLive.bind(this));
         goLiveAudioButtonElem.addEventListener('click', this.goLiveAudio.bind(this));
         stopButtonElem.addEventListener('click', this.stop.bind(this));
         this.peerMgr.registerPeerHandler('broadcastmanager', this.handlePeerEvent.bind(this));
+        this.pollH = setInterval(this.handleMessages.bind(this), 10);
     }
 
     async broadcastLive(audio, video) {
@@ -292,14 +294,32 @@ class BroadcastManager {
 
     // Called for every new SDP channel created.
     async handleChannel(peer, channel) {
-        let peerInfo = this.peers.get(peer);
+        // Handle remote offers.
+        channel.addEventListener('message', async (msgEv) => {
+            // Queue this message.
+            this.messageQueue.push({channel, peer, data: msgEv.data});
+        });
+        const peerInfo = this.peers.get(peer);
         peerInfo.channel = channel;
         channel.onclose = () => {
             delete peerInfo.channel;
         };
-        // Handle remote offers.
-        channel.onmessage = (msgEv) => {
-            const msg = JSON.parse(msgEv.data);
+        setTimeout(() => {
+            this.sendPeerList(channel);
+        }, 50)
+    }
+
+    async handleMessages() {
+        let msgData = this.messageQueue.shift();
+        if (msgData) {
+            this.handleMessage(msgData.channel, msgData.peer, msgData.data);
+        }
+    }
+
+    async handleMessage(channel, peer, msgData) {
+        const peerInfo = this.peers.get(peer);
+        try {
+            const msg = JSON.parse(msgData);
             switch (msg.type) {
                 case 'answer':
                     peerInfo.txStreams.get(msg.peer)?.setAnswer(new RTCSessionDescription(msg.offer));
@@ -331,8 +351,10 @@ class BroadcastManager {
                 default:
                     break;
             }
-        };
-        this.sendPeerList(channel);
+        }
+        catch (err) {
+            console.error('Error handling message', msgData, err);
+        }
     }
 
     async handlePeerEvent(type, peer) {
