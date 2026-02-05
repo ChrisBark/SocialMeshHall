@@ -129,7 +129,7 @@ class PostManager {
         if (!postElem) {
             postElem = this.postTemplateElem.cloneNode(true);
             postElem.id = 'P' + postId;
-            let commentsElem = postElem.querySelector(this.#contentsSelector);
+            let commentsElem = postElem.querySelector(this.#commentsSelector);
             this.addForm(commentsElem, postFilepath);
             this.#appendPost(parentElem, postElem);
         }

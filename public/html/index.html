@@ -1,8 +1,10 @@
 <html>
 <head>
     <link rel="stylesheet" href="/css/styles.css">
+    <link rel="icon" href="/img/SMH.ico" type="image/x-icon">
 </head>
 <body>
+    <img src="/img/SMH.png" class="logo">
     <div id="live">
         <div id="golive" class="div-button">
             <p>Go Live!</p>
@@ -13,20 +15,22 @@
         <div id="stop" class="div-button hidden">
             <p>Stop!</p>
         </div>
+        <div id="livevideos" class="container">
+        </div>
     </div>
     <div id="posts">
     </div>
     <div id="templates">
         <div id="postTemplate">
-            <div name="contents">
+            <div name="contents" class="container">
             </div>
-            <div name="comments">
+            <div name="comments" class="comment" class="container">
             </div>
         </div>
         <div id="pictureTemplate">
-            <img>
+            <img class="image">
         </div>
-        <div id="videoTemplate">
+        <div id="videoTemplate" class="video">
             <video autoplay playsinline muted>
         </div>
         <div id="audioTemplate">
@@ -50,7 +54,7 @@
     <script src="/js/BroadcastManager.js"></script>
     <script type='application/javascript'>
     document.addEventListener("DOMContentLoaded", () => {
-        let postMgr = new PostManager(document.getElementById('live'),
+        let postMgr = new PostManager(document.getElementById('livevideos'),
                                       document.getElementById('posts'),
                                       document.getElementById('postTemplate'),
                                       document.getElementById('pictureTemplate'),
