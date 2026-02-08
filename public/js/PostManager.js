@@ -185,23 +185,24 @@ class PostManager {
                         files = null;
                     }
                 }
-                if (!postFilepath) {
+                let newFilepath = postFilepath;
+                if (!newFilepath) {
                     const year = now.getUTCFullYear();
                     const month = now.getUTCMonth();
                     const date = now.getUTCDate();
-                    postFilepath = `/${year}/${month}/${date}/${ts}/`;
+                    newFilepath = `/${year}/${month}/${date}/${ts}/`;
                 }
                 else {
-                    if (!postFilepath.endsWith('/')) {
-                        postFilepath += '/';
+                    if (!newFilepath.endsWith('/')) {
+                        newFilepath += '/';
                     }
-                    postFilepath += (ts + '/');
+                    newFilepath += (ts + '/');
                 }
                 if (comment.length) {
-                    this.fileMgr.shareText(postFilepath + ts + '.txt', comment);
+                    this.fileMgr.shareText(newFilepath + ts + '.txt', comment);
                 }
                 if (files) {
-                    this.fileMgr.shareFiles(postFilepath, files);
+                    this.fileMgr.shareFiles(newFilepath, files);
                 }
             });
         }

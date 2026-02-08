@@ -2,6 +2,16 @@ html, body {
     height: 100%;
     margin: 0;
     padding: 0;
+    background-color: teal;
+}
+input[type="submit"] {
+    background-color: peachpuff;
+}
+input[type="text"] {
+    background-color: peachpuff;
+}
+input[type="file"]::file-selector-button {
+    background-color: peachpuff;
 }
 .image {
     padding: 10px;
@@ -34,6 +44,7 @@ html, body {
 }
 
 .logo {
+    mix-blend-mode: multiply;
     width: 50px;
     height: auto;
     margin: 0;
@@ -42,6 +53,7 @@ html, body {
 .comment {
     outline: 2px groove blue;
     outline-offset: 5px;
+    margin-left: 20px;
 }
 .container {
     display: flex;
