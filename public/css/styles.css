@@ -5,13 +5,13 @@ html, body {
     background-color: teal;
 }
 input[type="submit"] {
-    background-color: peachpuff;
+    background-color: coral;
 }
 input[type="text"] {
-    background-color: peachpuff;
+    background-color: coral;
 }
 input[type="file"]::file-selector-button {
-    background-color: peachpuff;
+    background-color: coral;
 }
 .image {
     padding: 10px;
