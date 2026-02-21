@@ -31,22 +31,26 @@ class FileHandle {
         this.ctrlPacketRetry = {};
     }
 
-    async write(file, data) {
+    async getFileHandle(create) {
+        let parts = this.filepath.split('/');
+        if (parts.length < 5) {
+            return reject(new Error('Filepath too short: ' + this.filepath));
+        }
+        // Assume it's the fileName on the end.
+        const fileName = parts.pop();
+        if (parts[0] === '') {
+            parts.shift();
+        }
+        // Walk through the directories.
+        return parts.reduce( (p, v) => {
+            return p.then( dh => dh.getDirectoryHandle(v, {create}));
+        }, navigator.storage.getDirectory())
+        .then( dh => dh.getFileHandle(fileName, {create}));
+    }
+
+    async write(data) {
         return new Promise( (resolve, reject) => {
-            let parts = this.filepath.split('/');
-            if (parts.length < 5) {
-                return reject(new Error('Filepath too short: ' + this.filepath));
-            }
-            // Assume it's the fileName on the end.
-            const fileName = parts.pop();
-            if (parts[0] === '') {
-                parts.shift();
-            }
-            // Walk through the directories.
-            return parts.reduce( (p, v) => {
-                return p.then( dh => dh.getDirectoryHandle(v, {create: true}));
-            }, navigator.storage.getDirectory())
-            .then( dh => dh.getFileHandle(fileName, {create: true}))
+            this.getFileHandle(true)
             // Now load the file.
             .then( fh => {
                 this.fileHandle = fh;
@@ -75,8 +79,8 @@ class FileHandle {
         });
     }
 
-    async create(file, data) {
-        return this.write(file, data)
+    async create(data) {
+        return this.write(data)
         .then( sizeChanged => {
             this.rangeTree.setFull();
             // Trigger a swarm for the new file.
@@ -85,16 +89,51 @@ class FileHandle {
         });
     }
 
-    open(peer, file) {
-        // If we don't have the complete file then start a swarm.
-        if (!this.rangeTree?.isComplete()) {
-            this.swarm();
-        }
-        // If we know the size of this file then just send a control
-        // packet 
-        if (peer && this.size) {
-            return this.sendControlPacket(peer);
-        }
+    open(peer) {
+        return Promise.resolve(!this.buffer)
+        .then( noBuffer => {
+            if (noBuffer) {
+                // Try and open the file without creating it.
+                return this.getFileHandle(false)
+                .then( fh => {
+                    return fh.getFile();
+                })
+                .then( file => {
+                    return file?.arrayBuffer();
+                })
+                .then( fileBuffer => {
+                    if (fileBuffer) {
+                        return this.setSize(fileBuffer.byteLength, fileBuffer);
+                    }
+                    return Promise.resolve(false);
+                })
+                .then( sizeChanged => {
+                    if (sizeChanged) {
+                        this.rangeTree.setFull();
+                    }
+                    // We don't need to trigger a swarm if someone asked for a
+                    // file we have and didn't create.
+                    return Promise.resolve(false);
+                })
+                .catch(err => {
+                    return Promise.resolve(true);
+                });
+            }
+            // If we are asked to open a file then we only want to trigger a
+            // swarm if it is an incomplete file.
+            return Promise.resolve(!this.rangeTree?.isComplete());
+        })
+        .then( swarm => {
+            // If we don't have the complete file then start a swarm.
+            if (swarm) {
+                this.swarm();
+            }
+            // If we know the size of this file then just send a control
+            // packet 
+            if (peer && this.size) {
+                return this.sendControlPacket(peer);
+            }
+        });
     }
 
     async swarm() {
@@ -242,7 +281,7 @@ class FileHandle {
                     // TODO - we can start writing the file before we receive the
                     // entire file.
                     if (this.rangeTree.isComplete()) {
-                        return this.write(file, this.buffer)
+                        return this.write(this.buffer)
                         .catch(err => {
                             // If we're open in another tab and didn't use
                             // readwrite-unsafe then createSyncAccessHandle()
@@ -390,7 +429,7 @@ class FileWorker {
             return Promise.reject('This file already exists: ' + file);
         }
         this.files.set(file, new FileHandle(this, file));
-        return this.files.get(file).create(file, data);
+        return this.files.get(file).create(data);
     }
 
     async open(peer, file) {
@@ -400,7 +439,7 @@ class FileWorker {
         if (!this.peers.has(peer)) {
             this.peers.set(peer, {});
         }
-        return this.files.get(file).open(peer, file);
+        return this.files.get(file).open(peer);
     }
 
     async generateFileList(peer) {
