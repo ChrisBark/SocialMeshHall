@@ -34,14 +34,14 @@ class PostManager {
         this.formTemplateElem = formTemplateElem;
     }
 
-    start(options, peerMgr, fileMgr, broadcastMgr) {
+    start(id, options, peerMgr, fileMgr, broadcastMgr) {
         this.options = options;
         this.fileMgr = fileMgr;
         this.peerMgr = peerMgr;
         this.broadcastMgr = broadcastMgr;
         this.peerMgr.registerChannelHandler(this.options.defaultChannel, this.handleChannel.bind(this));
         return fileMgr.init().then( ignore => {
-            return peerMgr.connect(window.location.origin);
+            return peerMgr.connect(id, window.location.origin);
         });
     }
 

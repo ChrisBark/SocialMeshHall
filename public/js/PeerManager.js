@@ -165,10 +165,11 @@ class Connection {
 }
 
 class PeerManager {
-    constructor(name, mainChannel, defaultChannel, options) {
+    constructor(name, email, mainChannel, defaultChannel, options) {
         this.mainChannel = mainChannel;
         this.defaultChannel = defaultChannel;
         this.name = name;
+        this.email = email;
         this.options = options;
         this.peers = new Map();
         this.connectionList = [];
@@ -214,7 +215,7 @@ class PeerManager {
         return Promise.resolve(this.peers.get(name));
     }
 
-    connect(url) {
+    connect(id, url) {
         return this.createConnection(this.name)
         .then( connection => {
             this.serverConnection = connection;
@@ -227,7 +228,7 @@ class PeerManager {
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
-                body: JSON.stringify({ name: this.name, sdp})
+                body: JSON.stringify({ id, name: this.name, sdp})
             });
         })
         .then( resp => {
