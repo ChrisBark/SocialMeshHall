@@ -1,9 +1,10 @@
 <html>
   <body>
-    <script src="https://accounts.google.com/gsi/client" async></script>
+<% if (googleScript && googleClientId && googleLoginURI) { %>
+    <script src="<%- googleScript %>" async></script>
     <div id="g_id_onload"
-        data-client_id="118095101781-8qj8o9u54p6f2poppmplfe51nnbcan1v.apps.googleusercontent.com"
-        data-login_uri="https://barkmesh.zapto.org:8080/table/<%= table %>"
+        data-client_id="<%- googleClientId %>"
+        data-login_uri="<%- googleLoginURI %>"
         data-auto_prompt="false">
     </div>
     <div class="g_id_signin"
@@ -14,5 +15,6 @@
         data-shape="rectangular"
         data-logo_alignment="left">
     </div>
+<% } %>
   <body>
 </html>

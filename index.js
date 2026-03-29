@@ -9,13 +9,18 @@ const path = require('path');
 const { randomInt } = require('node:crypto');
 const PeerManager = require('./lib/peermgr');
 
-const options = {
-  key: fs.readFileSync('ssl/cert.key').toString(),
-  cert: fs.readFileSync('ssl/cert.pem').toString(),
-};
+var options;
+if (process.argv[2]) {
+    options = JSON.parse(fs.readFileSync(process.argv[2]));
+}
+else {
+    options = {};
+}
+options.key = fs.readFileSync(options.keyFile??'/usr/local/etc/ssl/cert.key').toString();
+options.cert = fs.readFileSync(options.certFile??'/usr/local/etc/ssl/cert.pem').toString();
 
 const app = express();
-let tableMap = new Map();
+let peers = new PeerManager();
 const client = new OAuth2Client();
 let clientMap = new Map();
 
@@ -27,25 +32,26 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true}));
 app.use(cookieParser());
 
-app.get('/table/:table', (req, res, next) => {
-    if (!tableMap.has(req.params.table)) {
-        tableMap.set(req.params.table, new PeerManager());
-    }
-    res.render('login', {table: req.params.table});
+app.get('/', (req, res, next) => {
+    res.render('login', {
+        googleScript: options.login?.google?.script,
+        googleClientId: options.login?.google?.clientId,
+        googleLoginURI: options.login?.google?.loginURI
+    });
 });
 
-app.post('/table/:table', (req, res, next) => {
-    if (req.cookies?.g_csrf_token === req.body?.g_csrf_token) {
+app.post('/login', (req, res, next) => {
+    if (options.login?.google && req.cookies?.g_csrf_token === req.body?.g_csrf_token) {
         client.verifyIdToken({
             idToken: req.body.credential,
-            audience: '118095101781-8qj8o9u54p6f2poppmplfe51nnbcan1v.apps.googleusercontent.com'
+            audience: options.login.google.audience
         })
         .then( login => {
-            let id = Math.floor(Math.random() * 64000);
+            let id = Math.floor(Math.random() * 4294967296);
             while (clientMap.has(id)) {
-                id = Math.floor(Math.random() * 64000);
+                id = Math.floor(Math.random() * 4294967296);
             }
-            clientMap.set(id.toString(), {email: login.payload.email, table: req.params.table});
+            clientMap.set(id.toString(), {email: login.payload.email});
             res.render('client', {email: login.payload.email, id});
         })
         .catch( err => {
@@ -57,24 +63,17 @@ app.post('/table/:table', (req, res, next) => {
     }
 });
 
-app.get('/', (req, res, next) => {
-    res.redirect('/table/default');
-});
-
 app.post('/', (req, res, next) => {
     const client = clientMap.get(req.body?.id);
     if (!client) {
         res.status(404).end();
         return;
     }
-    const peerManager = tableMap.get(client.table);
-    if (!peerManager) {
-        res.status(404).end();
-        return;
-    }
-    clientMap.delete(req.body.id);
-    peerManager.addPeer(req.body.name)
+    peers.addPeer(req.body.name)
     .then( peer => {
+        // MAke sure they used a unique name before deleting the entry from
+        // the client map.
+        clientMap.delete(req.body.id);
         return peer.getSDP(req.body.sdp);
     })
     .then( sdp => {
@@ -88,7 +87,10 @@ app.post('/', (req, res, next) => {
         });
     })
     .catch( err => {
-        next(err);
+        if (err === 'EADDRINUSE') {
+            return res.status(409).send('Conflict');
+        }
+        res.status(404).end();
     });
 });
 

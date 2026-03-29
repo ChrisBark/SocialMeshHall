@@ -164,11 +164,15 @@ class Connection {
     }
 }
 
+function generateName(email) {
+    return Math.floor(Math.random() * 4294967296).toString() + email;
+}
+
 class PeerManager {
-    constructor(name, email, mainChannel, defaultChannel, options) {
+    constructor(email, mainChannel, defaultChannel, options) {
         this.mainChannel = mainChannel;
         this.defaultChannel = defaultChannel;
-        this.name = name;
+        this.name = generateName(email);
         this.email = email;
         this.options = options;
         this.peers = new Map();
@@ -235,10 +239,21 @@ class PeerManager {
             if (resp.ok) {
                 return resp.json();
             }
-            throw new Error('Fetch failed ' + resp.statusText);
+            let err = new Error('Fetch failed ' + resp.statusText);
+            err.statusCode = resp.statusCode;
+            throw err;
         })
         .then( resp => {
             return this.serverConnection.pc.setRemoteDescription(resp.sdp);
+        })
+        .catch( err => {
+            // If we get a conflict error back then generate a new name and try
+            // again.
+            if (err.statusCode === 409) {
+                this.name = generateName(this.email);
+                return this.connect(id, url);
+            }
+            throw err;
         });
     }
 
